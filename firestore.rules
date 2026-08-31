@@ -1,0 +1,26 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Sensor telemetry & greenhouse real-time synchronization
+    match /greenhouses/{greenhouseId} {
+      allow read, write: if true;
+    }
+    match /sensor_telemetry/{document} {
+      allow read, write: if true;
+    }
+    // Historical log of real sensor readings, appended to by the server's
+    // /api/telemetry ingestion route. Powers Dashboard daily averages and
+    // the Reports page's charts/exports.
+    match /sensor_readings_log/{document} {
+      allow read, write: if true;
+    }
+    // Authenticated user data
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    // Default fallback during development/testing
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}

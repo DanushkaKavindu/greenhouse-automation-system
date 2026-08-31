@@ -1,0 +1,6 @@
+{
+  "name": "Green House Automation System",
+  "description": "Smart Greenhouse microclimate monitor and automated climate control system featuring AI-powered plant leaf disease diagnostics for green chilli cultivation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

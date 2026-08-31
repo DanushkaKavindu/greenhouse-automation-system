@@ -1,0 +1,70 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* Custom palette matching the reference soft neumorphic theme */
+  --color-bg-base: #dbe3ea;
+  --color-bg-gradient-to: #e9eef3;
+  --color-card-bg: #ffffff;
+  --color-inner-bg: #e9eef3;
+  --color-navy-active: #0f172a;
+  --color-text-primary: #1e293b;
+  --color-text-secondary: #94a3b8;
+  --color-divider: #d7dee6;
+
+  /* Functional status accents */
+  --color-status-healthy: #22c55e;
+  --color-status-warning: #f59e0b;
+  --color-status-critical: #ef4444;
+
+  /* Custom shadows */
+  --shadow-glass: 0 20px 40px rgba(15, 23, 42, 0.06);
+  --shadow-glass-hover: 0 25px 50px rgba(15, 23, 42, 0.1);
+}
+
+/* Base modifications for the glass/soft-UI aesthetic */
+body {
+  font-family: var(--font-sans);
+  background: linear-gradient(135deg, var(--color-bg-base), var(--color-bg-gradient-to));
+  color: var(--color-text-primary);
+  min-height: 100vh;
+  margin: 0;
+  overflow-x: hidden;
+  position: relative;
+}
+
+/* Soft blur vignette/focus at the edges */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(circle at center, transparent 40%, rgba(219, 227, 234, 0.15) 100%);
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* Custom scrollbars matching the soft theme */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-divider);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-secondary);
+}
+
+/* Smooth transition defaults */
+* {
+  transition-property: background-color, border-color, text-color, fill, stroke, opacity, box-shadow, transform;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 200ms;
+}
