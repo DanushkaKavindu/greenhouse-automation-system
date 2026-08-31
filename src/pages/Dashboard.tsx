@@ -1,7 +1,6 @@
 import { Sliders, Sun, Thermometer, Droplets, Lightbulb, Activity, Sparkles, Heart, AlertTriangle, ArrowRight, ShieldCheck, Sprout, Camera, Edit3, Check, RefreshCw, Calendar, BarChart2, FlaskConical, Leaf, Zap } from 'lucide-react';
 import { useState, ChangeEvent } from 'react';
 import { SensorData, ControlData, PageId, CropVariety } from '../types';
-import PlantGrowth3D from '../components/PlantGrowth3D';
 import { useDailyAverages } from '../utils/telemetry';
 
 interface DashboardProps {
@@ -1035,25 +1034,10 @@ export default function Dashboard({
           </div>
         </div>
 
-        {/* Column 3: Plant growth visualizer & alarm indicators (3 cols) */}
+        {/* Column 3: Actuator status indicators (3 cols) */}
         <div className="lg:col-span-3 bg-card-bg rounded-[28px] p-6 shadow-glass border border-white/20 flex flex-col justify-between space-y-6">
-          <div className="space-y-4">
-            <div>
-              <span className="text-[10px] text-text-secondary font-bold uppercase tracking-wider block">3D VISUALIZER</span>
-              <h3 className="text-lg font-semibold text-text-primary">Procedural Plant</h3>
-            </div>
-
-            {/* Procedural Canvas plant representation */}
-            <div className="bg-white/40 rounded-2xl p-3 border border-white/40">
-              <PlantGrowth3D 
-                growthStage={sensorData.growthStage} 
-                healthScore={sensorData.healthScore} 
-              />
-            </div>
-          </div>
-
           {/* Actuator Quick Check indicators */}
-          <div className="space-y-3 pt-3 border-t border-divider/40">
+          <div className="space-y-3">
             <span className="text-[10px] text-text-secondary font-bold uppercase tracking-wider block">Actuators Telemetry</span>
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs">

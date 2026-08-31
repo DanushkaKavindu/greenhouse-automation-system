@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Sprout, LogIn, ArrowRight, AlertCircle, EyeOff, Eye, Sparkles } from 'lucide-react';
+import { Sprout, LogIn, ArrowRight, AlertCircle, EyeOff, Eye } from 'lucide-react';
 import { auth, googleSignIn, registerUser, loginUser } from '../firebase';
 
 interface LoginPageProps {
@@ -50,16 +50,6 @@ export default function LoginPage({ onLoginSuccess, onSkip }: LoginPageProps) {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handleDemoSignIn = () => {
-    // Auto populate and submit demo details
-    onLoginSuccess({
-      uid: 'demo_user_123',
-      email: 'cultivator@greenhouse.lk',
-      displayName: 'Green Chilli Cultivator (Demo)',
-      photoURL: null,
-    });
   };
 
   return (
@@ -152,23 +142,13 @@ export default function LoginPage({ onLoginSuccess, onSkip }: LoginPageProps) {
               <span className="flex-1 h-px bg-divider" />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={handleGoogleSignIn}
-                className="py-2.5 px-4 bg-white hover:bg-inner-bg text-text-primary text-xs font-semibold rounded-xl border border-divider/40 flex items-center justify-center gap-2 shadow-sm transition-colors"
-              >
-                Google
-              </button>
-              <button
-                type="button"
-                onClick={handleDemoSignIn}
-                className="py-2.5 px-4 bg-emerald-50 hover:bg-emerald-100 text-status-healthy text-xs font-bold rounded-xl border border-emerald-100 flex items-center justify-center gap-1.5 shadow-sm transition-colors"
-              >
-                <Sparkles className="w-3.5 h-3.5 fill-status-healthy" />
-                Guest Demo
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={handleGoogleSignIn}
+              className="w-full py-2.5 px-4 bg-white hover:bg-inner-bg text-text-primary text-xs font-semibold rounded-xl border border-divider/40 flex items-center justify-center gap-2 shadow-sm transition-colors"
+            >
+              Google
+            </button>
 
             <div className="text-center text-xs">
               <span className="text-text-secondary">

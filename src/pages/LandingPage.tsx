@@ -1,11 +1,10 @@
-import { Sprout, ArrowRight, ShieldCheck, Cpu, Database, Eye, Heart, Leaf } from 'lucide-react';
+import { ArrowRight, ShieldCheck, Cpu, Database, Eye, Heart, Leaf } from 'lucide-react';
 
 interface LandingPageProps {
   onStart: () => void;
-  onViewDemo: () => void;
 }
 
-export default function LandingPage({ onStart, onViewDemo }: LandingPageProps) {
+export default function LandingPage({ onStart }: LandingPageProps) {
   const features = [
     {
       icon: Eye,
@@ -28,22 +27,10 @@ export default function LandingPage({ onStart, onViewDemo }: LandingPageProps) {
       desc: 'Analyze environmental historical averages and charts to optimize green chilli yield and crop quality.',
     },
     {
-      icon: Sprout,
-      title: '3D Plant Growth Tracking',
-      desc: 'Visualize your green chilli development in a procedural 3D visualizer that adjusts directly to real-time vitals.',
-    },
-    {
       icon: ShieldCheck,
       title: 'Google Calendar Integration',
       desc: 'Sync daily agricultural updates, warning alerts, and watering activity logs directly to your calendar.',
     }
-  ];
-
-  const steps = [
-    { num: '01', title: 'Connect Hardware', desc: 'Sync your ESP32 microcontrollers and DHT22/Soil/LDR sensors.' },
-    { num: '02', title: 'Monitor Vitals', desc: 'Read instant streaming data on the quiet glassmorphic console.' },
-    { num: '03', title: 'AI Diagnostics', desc: 'Receive instant pest, pathogen, and nutrition recommendations.' },
-    { num: '04', title: 'Auto Regulation', desc: 'Actuators automatically maintain ideal conditions 24/7.' },
   ];
 
   const stats = [
@@ -59,11 +46,6 @@ export default function LandingPage({ onStart, onViewDemo }: LandingPageProps) {
       {/* Hero Section */}
       <section className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-center">
         <div className="lg:col-span-7 space-y-6 text-left">
-          <div className="inline-flex items-center gap-2 bg-white/60 backdrop-blur-sm py-1.5 px-4 rounded-full border border-white/20 shadow-sm text-xs text-text-primary font-semibold">
-            <span className="w-2 h-2 rounded-full bg-status-healthy animate-pulse" />
-            Designed for Green Chilli Cultivation · Sri Lanka
-          </div>
-
           <h1 className="text-4xl lg:text-5xl font-bold text-text-primary tracking-tight leading-tight">
             Smart Greenhouse <span className="block text-navy-active font-extrabold">Monitoring & Control</span>
           </h1>
@@ -79,12 +61,6 @@ export default function LandingPage({ onStart, onViewDemo }: LandingPageProps) {
             >
               Get Started
               <ArrowRight className="w-4 h-4" />
-            </button>
-            <button
-              onClick={onViewDemo}
-              className="py-3 px-6 bg-white/60 hover:bg-white text-text-primary border border-divider/40 font-semibold text-xs uppercase tracking-wider rounded-xl hover:shadow-sm transition-all"
-            >
-              View Live Demo
             </button>
           </div>
         </div>
@@ -146,29 +122,6 @@ export default function LandingPage({ onStart, onViewDemo }: LandingPageProps) {
               </div>
             );
           })}
-        </div>
-      </section>
-
-      {/* How it Works */}
-      <section className="space-y-10 text-center">
-        <div className="space-y-3">
-          <span className="text-[10px] font-bold text-text-secondary tracking-wider uppercase block">Methodology</span>
-          <h2 className="text-3xl font-semibold text-text-primary">How The Greenhouse Monitor Works</h2>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 text-left">
-          {steps.map((s, index) => (
-            <div
-              key={index}
-              className="bg-card-bg rounded-[24px] p-6 shadow-glass border border-white/20 space-y-4 flex flex-col justify-between h-[200px]"
-            >
-              <div className="text-2xl font-bold text-text-secondary/30">{s.num}</div>
-              <div className="space-y-1">
-                <h3 className="text-xs font-bold text-text-primary">{s.title}</h3>
-                <p className="text-[11px] text-text-secondary leading-relaxed">{s.desc}</p>
-              </div>
-            </div>
-          ))}
         </div>
       </section>
 

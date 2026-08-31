@@ -473,16 +473,6 @@ export default function App() {
         {activePage === 'landing' && (
           <LandingPage 
             onStart={() => setActivePage('login')} 
-            onViewDemo={() => {
-              // Sign in a default simulated user
-              setUser({
-                uid: 'demo_user_123',
-                email: 'cultivator@greenhouse.lk',
-                displayName: 'Green Chilli Cultivator (Demo)',
-                photoURL: null,
-              });
-              setActivePage('dashboard');
-            }}
           />
         )}
 
