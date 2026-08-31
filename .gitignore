@@ -8,3 +8,4 @@ coverage/
 !.env.example
 functions-dist/
 _to_delete/
+.firebase/
