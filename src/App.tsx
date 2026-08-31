@@ -15,7 +15,7 @@ import AIAnalysis from './pages/AIAnalysis';
 import CalendarPage from './pages/CalendarPage';
 import About from './pages/About';
 
-import { db, onSensorChange, onControlChange, onThresholdChange, updateSensorNode, updateControlNode, updateThresholdNode } from './firebase';
+import { db, onSensorChange, onControlChange, onThresholdChange, updateSensorNode, updateControlNode, updateThresholdNode, connectGoogleCalendar, GoogleCalendarToken } from './firebase';
 
 const cropPresets: CropVariety[] = [
   {
@@ -267,6 +267,7 @@ export default function App() {
   ]);
 
   const [isCalendarConnected, setIsCalendarConnected] = useState(false);
+  const [googleCalendarToken, setGoogleCalendarToken] = useState<GoogleCalendarToken | null>(null);
 
   // Connect real-time Firestore database hooks for live synchronization
   useEffect(() => {
@@ -434,9 +435,22 @@ export default function App() {
     setActivePage('landing');
   };
 
-  const handleConnectGoogleCalendar = () => {
-    setIsCalendarConnected(true);
-    alert('Successfully integrated Google Workspace Calendar API! Daily average readings and alerts will now push directly into G-Suite.');
+  const handleConnectGoogleCalendar = async () => {
+    try {
+      const token = await connectGoogleCalendar();
+      if (!token) {
+        alert("Connecting to a real Google Calendar isn't available right now (no live Firebase/Google project is configured for this deployment). Events will only be saved inside this app.");
+        return;
+      }
+      setGoogleCalendarToken(token);
+      setIsCalendarConnected(true);
+      alert('Connected to your real Google Calendar. Syncs will create actual events on your primary calendar for about the next hour — if syncing starts failing after that, just click "Connect Google Calendar" again to refresh access.');
+    } catch (err: any) {
+      console.error('Google Calendar connect failed:', err);
+      setIsCalendarConnected(false);
+      setGoogleCalendarToken(null);
+      alert('Could not connect to Google Calendar: ' + (err?.message || 'the sign-in popup was closed or blocked by your browser.'));
+    }
   };
 
   return (
@@ -540,6 +554,7 @@ export default function App() {
             onAddEvent={(evt) => setCalendarEvents((prev) => [evt, ...prev])}
             onConnectCalendar={handleConnectGoogleCalendar}
             isConnected={isCalendarConnected}
+            googleCalendarToken={googleCalendarToken}
             selectedDateStr={selectedCalendarDate}
             onSelectDateStr={setSelectedCalendarDate}
             onNavigateToDashboard={() => setActivePage('dashboard')}

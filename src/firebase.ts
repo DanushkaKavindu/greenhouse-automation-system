@@ -82,13 +82,75 @@ export async function googleSignIn() {
   return result.user;
 }
 
-export async function getAccessToken() {
+// 📅 Real Google Calendar integration. Firebase's own getIdToken() is NOT a
+// usable Google API access token — it authenticates against YOUR backend,
+// not Google's APIs. To actually write to the user's real Google Calendar
+// we have to run a second Google sign-in that explicitly requests the
+// calendar.events OAuth scope, and pull the Google access token out of the
+// sign-in result (GoogleAuthProvider.credentialFromResult).
+//
+// Caveat worth knowing: this client-side popup flow only yields a
+// short-lived access token (~1 hour) with no refresh token, so a sync will
+// start failing after that hour until the user reconnects. A persistent
+// integration would need a server-side OAuth flow that stores a refresh
+// token — out of scope for this app's current architecture.
+const GOOGLE_CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar.events';
+
+export interface GoogleCalendarToken {
+  accessToken: string;
+  expiresAt: number; // epoch ms — approximate, Google doesn't return this in the popup flow
+}
+
+export async function connectGoogleCalendar(): Promise<GoogleCalendarToken | null> {
   if (isMockFirebase) {
-    return Promise.resolve('mock_access_token_123');
+    // No real Firebase/Google project configured — there is no real
+    // Google account to connect to in offline/demo mode.
+    return null;
   }
-  const user = auth.currentUser;
-  if (!user) return null;
-  return user.getIdToken();
+  const provider = new GoogleAuthProvider();
+  provider.addScope(GOOGLE_CALENDAR_SCOPE);
+  const result = await signInWithPopup(auth, provider);
+  const credential = GoogleAuthProvider.credentialFromResult(result);
+  if (!credential?.accessToken) return null;
+  return {
+    accessToken: credential.accessToken,
+    expiresAt: Date.now() + 55 * 60 * 1000,
+  };
+}
+
+export function isGoogleCalendarTokenValid(token: GoogleCalendarToken | null): token is GoogleCalendarToken {
+  return !!token && Date.now() < token.expiresAt;
+}
+
+// Creates a REAL all-day event on the signed-in user's primary Google
+// Calendar via the Calendar v3 REST API. Throws on failure — callers should
+// show the real error rather than pretending it succeeded.
+export async function createGoogleCalendarEvent(
+  accessToken: string,
+  event: { summary: string; description: string; dateStr: string }
+): Promise<void> {
+  const endDate = new Date(`${event.dateStr}T00:00:00`);
+  endDate.setDate(endDate.getDate() + 1);
+  const endDateStr = endDate.toISOString().split('T')[0];
+
+  const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      summary: event.summary,
+      description: event.description,
+      start: { date: event.dateStr },
+      end: { date: endDateStr },
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Google Calendar API error ${res.status}: ${body || res.statusText}`);
+  }
 }
 
 export async function registerUser(email: string, pass: string) {

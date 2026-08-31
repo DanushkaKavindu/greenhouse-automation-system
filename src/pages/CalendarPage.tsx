@@ -1,5 +1,6 @@
 import { CalendarEvent } from '../types';
 import GoogleCalendar from '../components/GoogleCalendar';
+import { GoogleCalendarToken } from '../firebase';
 import { Calendar as CalendarIcon, Sparkles } from 'lucide-react';
 
 interface CalendarPageProps {
@@ -7,6 +8,7 @@ interface CalendarPageProps {
   onAddEvent: (event: CalendarEvent) => void;
   onConnectCalendar: () => void;
   isConnected: boolean;
+  googleCalendarToken?: GoogleCalendarToken | null;
   selectedDateStr?: string;
   onSelectDateStr?: (dateStr: string) => void;
   onNavigateToDashboard?: () => void;
@@ -17,6 +19,7 @@ export default function CalendarPage({
   onAddEvent, 
   onConnectCalendar, 
   isConnected,
+  googleCalendarToken,
   selectedDateStr,
   onSelectDateStr,
   onNavigateToDashboard
@@ -41,6 +44,7 @@ export default function CalendarPage({
         onAddEvent={onAddEvent}
         onConnectCalendar={onConnectCalendar}
         isConnected={isConnected}
+        googleCalendarToken={googleCalendarToken}
         selectedDateStr={selectedDateStr}
         onSelectDateStr={onSelectDateStr}
         onNavigateToDashboard={onNavigateToDashboard}

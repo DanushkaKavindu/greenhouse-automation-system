@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus, Check, Clock, AlertTriangle, CloudRain, ShieldAlert, BarChart2, ArrowRight } from 'lucide-react';
+import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus, Check, Clock, AlertTriangle, CloudRain, ShieldAlert, BarChart2, ArrowRight, RefreshCw } from 'lucide-react';
 import { CalendarEvent } from '../types';
-import { googleSignIn, getAccessToken, isMockFirebase } from '../firebase';
+import { GoogleCalendarToken, isGoogleCalendarTokenValid, createGoogleCalendarEvent } from '../firebase';
 import { useDailyAverages } from '../utils/telemetry';
 
 interface GoogleCalendarProps {
@@ -9,6 +9,7 @@ interface GoogleCalendarProps {
   onAddEvent: (event: CalendarEvent) => void;
   onConnectCalendar: () => void;
   isConnected: boolean;
+  googleCalendarToken?: GoogleCalendarToken | null;
   selectedDateStr?: string;
   onSelectDateStr?: (dateStr: string) => void;
   onNavigateToDashboard?: () => void;
@@ -19,10 +20,13 @@ export default function GoogleCalendar({
   onAddEvent, 
   onConnectCalendar, 
   isConnected,
+  googleCalendarToken,
   selectedDateStr,
   onSelectDateStr,
   onNavigateToDashboard
 }: GoogleCalendarProps) {
+  const [isSyncingToGoogle, setIsSyncingToGoogle] = useState(false);
+  const canSyncToRealGoogleCalendar = isConnected && isGoogleCalendarTokenValid(googleCalendarToken ?? null);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date>(
     selectedDateStr ? new Date(selectedDateStr) : new Date()
@@ -71,13 +75,70 @@ export default function GoogleCalendar({
     'July', 'August', 'September', 'October', 'November', 'December'
   ];
 
-  const prevMonth = () => {
-    setCurrentDate(new Date(year, month - 1, 1));
+  const addDays = (d: Date, n: number) => {
+    const copy = new Date(d);
+    copy.setDate(copy.getDate() + n);
+    return copy;
   };
 
-  const nextMonth = () => {
-    setCurrentDate(new Date(year, month + 1, 1));
+  // Monday-start week, matching getFirstDayOfMonth's convention above.
+  const startOfWeek = (d: Date) => {
+    const copy = new Date(d);
+    const day = copy.getDay(); // 0 Sun .. 6 Sat
+    const diff = day === 0 ? -6 : 1 - day;
+    copy.setDate(copy.getDate() + diff);
+    copy.setHours(0, 0, 0, 0);
+    return copy;
   };
+
+  const selectDate = (d: Date) => {
+    setSelectedDate(d);
+    onSelectDateStr?.(d.toISOString().split('T')[0]);
+  };
+
+  // Navigation step depends on the active view: a month, a week, or a
+  // single day. Day view keeps currentDate and selectedDate in lockstep
+  // since there's only one date on screen at a time.
+  const goToPrevPeriod = () => {
+    if (viewMode === 'Month') {
+      setCurrentDate(new Date(year, month - 1, 1));
+    } else if (viewMode === 'Week') {
+      setCurrentDate(addDays(currentDate, -7));
+    } else {
+      const d = addDays(currentDate, -1);
+      setCurrentDate(d);
+      selectDate(d);
+    }
+  };
+
+  const goToNextPeriod = () => {
+    if (viewMode === 'Month') {
+      setCurrentDate(new Date(year, month + 1, 1));
+    } else if (viewMode === 'Week') {
+      setCurrentDate(addDays(currentDate, 7));
+    } else {
+      const d = addDays(currentDate, 1);
+      setCurrentDate(d);
+      selectDate(d);
+    }
+  };
+
+  // Switching to Week/Day should show the period containing whatever date
+  // is currently selected, not silently keep whatever currentDate was.
+  const changeViewMode = (view: 'Month' | 'Week' | 'Day') => {
+    setViewMode(view);
+    if (view !== 'Month') {
+      setCurrentDate(selectedDate);
+    }
+  };
+
+  const weekStart = startOfWeek(currentDate);
+  const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+  const weekEnd = weekDays[6];
+  const weekRangeLabel = weekStart.getMonth() === weekEnd.getMonth()
+    ? `${monthNames[weekStart.getMonth()]} ${weekStart.getDate()} – ${weekEnd.getDate()}, ${weekEnd.getFullYear()}`
+    : `${monthNames[weekStart.getMonth()]} ${weekStart.getDate()} – ${monthNames[weekEnd.getMonth()]} ${weekEnd.getDate()}, ${weekEnd.getFullYear()}`;
+  const dayViewLabel = currentDate.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 
   // Build calendar days array
   const calendarDays: { date: Date; isCurrentMonth: boolean; isToday: boolean; isSelected: boolean }[] = [];
@@ -121,16 +182,18 @@ export default function GoogleCalendar({
     });
   }
 
-  // Event handler for adding a custom event with mandatory confirmation
-  const handleCreateEvent = () => {
+  // Event handler for adding a custom event with mandatory confirmation.
+  // Always saves inside the app's own event list; when a real, unexpired
+  // Google OAuth token is present, it ALSO writes a real event to the
+  // user's actual primary Google Calendar via the Calendar v3 REST API.
+  const handleCreateEvent = async () => {
     if (!newTitle.trim()) return;
 
     const dateStr = selectedDate.toISOString().split('T')[0];
 
-    // Mandatory Workspace Rule Confirmation Dialog
-    const confirmMessage = isConnected 
-      ? `Are you sure you want to write this event "${newTitle}" directly into your live Google Calendar account under date ${dateStr}?`
-      : `Save "${newTitle}" as an offline-scheduled sensor event for ${dateStr}?`;
+    const confirmMessage = canSyncToRealGoogleCalendar
+      ? `Write this event "${newTitle}" to your REAL Google Calendar (primary calendar) under date ${dateStr}?`
+      : `Save "${newTitle}" as an in-app log entry for ${dateStr}? (Not connected to a real Google Calendar right now.)`;
 
     if (!window.confirm(confirmMessage)) {
       return;
@@ -142,11 +205,27 @@ export default function GoogleCalendar({
       description: newDesc,
       date: dateStr,
       type: newType,
-      details: 'Manual Cultivator Log Entry'
+      details: canSyncToRealGoogleCalendar ? 'Manual entry — synced to Google Calendar' : 'Manual Cultivator Log Entry'
     };
 
     onAddEvent(newEvent);
-    
+
+    if (canSyncToRealGoogleCalendar && googleCalendarToken) {
+      setIsSyncingToGoogle(true);
+      try {
+        await createGoogleCalendarEvent(googleCalendarToken.accessToken, {
+          summary: newTitle,
+          description: newDesc || 'Added from Smart Greenhouse Assistant.',
+          dateStr,
+        });
+      } catch (err: any) {
+        console.error('Google Calendar write failed:', err);
+        alert('Saved in the app, but writing to your real Google Calendar failed: ' + (err?.message || 'unknown error') + '. Your Google access may have expired — try reconnecting.');
+      } finally {
+        setIsSyncingToGoogle(false);
+      }
+    }
+
     // Reset form
     setNewTitle('');
     setNewDesc('');
@@ -154,32 +233,47 @@ export default function GoogleCalendar({
     setShowAddEventModal(false);
   };
 
-  // Automatically trigger event sync for averages (with prompt) — uses the
-  // REAL daily average computed from logged ESP32 readings (selectedDayAvgData),
-  // not fabricated numbers.
-  const syncDailyAverages = () => {
+  // Sync the REAL daily average (computed from actually-logged ESP32
+  // readings, selectedDayAvgData — never fabricated) to the user's real
+  // Google Calendar as an all-day event, in addition to the in-app log.
+  const syncDailyAverages = async () => {
     const dateStr = selectedDate.toISOString().split('T')[0];
     const avg = selectedDayAvgData;
 
-    // Mandatory Prompt Dialog
+    const destination = canSyncToRealGoogleCalendar ? 'your REAL Google Calendar' : 'this app only (not connected to a real Google Calendar)';
     const confirmMessage = avg.sampleCount > 0
-      ? `Synchronize daily greenhouse statistics (Avg Temp: ${avg.temp}, Avg Soil Moisture: ${avg.soil}) to Google Calendar as summary events for ${dateStr}?`
-      : `No sensor readings have been logged for ${dateStr} yet, so there are no real statistics to sync. Add a placeholder entry anyway?`;
-    
-    if (window.confirm(confirmMessage)) {
-      const averageEvent: CalendarEvent = {
-        id: 'auto_avg_' + Date.now(),
-        title: avg.sampleCount > 0
-          ? `🌱 Greenhouse stats: ${avg.temp} / ${avg.soil} Soil`
-          : '🌱 Greenhouse stats: no data logged',
-        description: avg.sampleCount > 0
-          ? 'Automatic system report summarizing 24hr agricultural metrics.'
-          : 'No ESP32 readings were logged for this date.',
-        date: dateStr,
-        type: 'normal',
-        details: 'Automated System Average Synced'
-      };
-      onAddEvent(averageEvent);
+      ? `Sync daily greenhouse statistics (Avg Temp: ${avg.temp}, Avg Soil Moisture: ${avg.soil}, from ${avg.sampleCount} logged readings) to ${destination} for ${dateStr}?`
+      : `No sensor readings have been logged for ${dateStr} yet, so there are no real statistics to sync. Add a "no data" placeholder to ${destination} anyway?`;
+
+    if (!window.confirm(confirmMessage)) return;
+
+    const title = avg.sampleCount > 0
+      ? `🌱 Greenhouse stats: ${avg.temp} / ${avg.soil} Soil`
+      : '🌱 Greenhouse stats: no data logged';
+    const description = avg.sampleCount > 0
+      ? `Real 24hr averages from ${avg.sampleCount} logged readings — Temp: ${avg.temp}, Humidity: ${avg.humidity}, Soil Moisture: ${avg.soil}, Light: ${avg.light}, N: ${avg.nitrogen}, P: ${avg.phosphorus}, K: ${avg.potassium}.`
+      : 'No ESP32 readings were logged for this date — the hardware may not have been connected.';
+
+    const averageEvent: CalendarEvent = {
+      id: 'auto_avg_' + Date.now(),
+      title,
+      description,
+      date: dateStr,
+      type: 'normal',
+      details: canSyncToRealGoogleCalendar ? 'Automated average — synced to Google Calendar' : 'Automated System Average (in-app only)'
+    };
+    onAddEvent(averageEvent);
+
+    if (canSyncToRealGoogleCalendar && googleCalendarToken) {
+      setIsSyncingToGoogle(true);
+      try {
+        await createGoogleCalendarEvent(googleCalendarToken.accessToken, { summary: title, description, dateStr });
+      } catch (err: any) {
+        console.error('Google Calendar sync failed:', err);
+        alert('Saved in the app, but syncing to your real Google Calendar failed: ' + (err?.message || 'unknown error') + '. Your Google access may have expired — try reconnecting.');
+      } finally {
+        setIsSyncingToGoogle(false);
+      }
     }
   };
 
@@ -201,17 +295,19 @@ export default function GoogleCalendar({
                 Greenhouse Schedule
               </span>
               <h2 className="text-xl font-semibold text-text-primary">
-                {monthNames[month]} {year}
+                {viewMode === 'Month' && `${monthNames[month]} ${year}`}
+                {viewMode === 'Week' && weekRangeLabel}
+                {viewMode === 'Day' && dayViewLabel}
               </h2>
             </div>
 
             <div className="flex items-center gap-2">
               {/* Period selection tabs */}
               <div className="bg-inner-bg p-0.5 rounded-xl flex gap-1 text-[10px] font-semibold">
-                {['Month', 'Week', 'Day'].map((view) => (
+                {(['Month', 'Week', 'Day'] as const).map((view) => (
                   <button
                     key={view}
-                    onClick={() => setViewMode(view as any)}
+                    onClick={() => changeViewMode(view)}
                     className={`py-1 px-3 rounded-lg ${
                       viewMode === view 
                         ? 'bg-navy-active text-white shadow-sm' 
@@ -226,13 +322,13 @@ export default function GoogleCalendar({
               {/* Prev / Next buttons */}
               <div className="flex items-center bg-inner-bg p-0.5 rounded-xl">
                 <button 
-                  onClick={prevMonth} 
+                  onClick={goToPrevPeriod} 
                   className="p-1 rounded-lg text-text-secondary hover:text-text-primary hover:bg-divider/50"
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
                 <button 
-                  onClick={nextMonth} 
+                  onClick={goToNextPeriod} 
                   className="p-1 rounded-lg text-text-secondary hover:text-text-primary hover:bg-divider/50"
                 >
                   <ChevronRight className="w-4 h-4" />
@@ -241,58 +337,136 @@ export default function GoogleCalendar({
             </div>
           </div>
 
-          {/* Calendar Grid */}
-          <div className="grid grid-cols-7 gap-1 text-center">
-            {/* Days of week header */}
-            {daysOfWeek.map((day) => (
-              <span key={day} className="text-[10px] font-bold text-text-secondary uppercase tracking-wider py-2">
-                {day}
-              </span>
-            ))}
+          {/* Calendar Grid - Month view */}
+          {viewMode === 'Month' && (
+            <div className="grid grid-cols-7 gap-1 text-center">
+              {/* Days of week header */}
+              {daysOfWeek.map((day) => (
+                <span key={day} className="text-[10px] font-bold text-text-secondary uppercase tracking-wider py-2">
+                  {day}
+                </span>
+              ))}
 
-            {/* Grid days */}
-            {calendarDays.map((slot, idx) => {
-              const slotDateStr = slot.date.toISOString().split('T')[0];
-              const slotEvents = events.filter(e => e.date === slotDateStr);
+              {/* Grid days */}
+              {calendarDays.map((slot, idx) => {
+                const slotDateStr = slot.date.toISOString().split('T')[0];
+                const slotEvents = events.filter(e => e.date === slotDateStr);
 
-              return (
-                <div
-                  key={idx}
-                  onClick={() => {
-                    setSelectedDate(slot.date);
-                    if (onSelectDateStr) {
-                      onSelectDateStr(slotDateStr);
-                    }
-                  }}
-                  className={`aspect-square rounded-[16px] flex flex-col items-center justify-between py-2 cursor-pointer relative hover:bg-inner-bg/50 transition-all ${
-                    slot.isSelected 
-                      ? 'bg-navy-active text-white scale-102 shadow-md' 
-                      : slot.isToday 
-                      ? 'bg-inner-bg text-text-primary font-bold' 
-                      : slot.isCurrentMonth 
-                      ? 'text-text-primary' 
-                      : 'text-text-secondary/50'
-                  }`}
-                >
-                  {/* Day number */}
-                  <span className="text-xs font-semibold">{slot.date.getDate()}</span>
+                return (
+                  <div
+                    key={idx}
+                    onClick={() => selectDate(slot.date)}
+                    className={`aspect-square rounded-[16px] flex flex-col items-center justify-between py-2 cursor-pointer relative hover:bg-inner-bg/50 transition-all ${
+                      slot.isSelected 
+                        ? 'bg-navy-active text-white scale-102 shadow-md' 
+                        : slot.isToday 
+                        ? 'bg-inner-bg text-text-primary font-bold' 
+                        : slot.isCurrentMonth 
+                        ? 'text-text-primary' 
+                        : 'text-text-secondary/50'
+                    }`}
+                  >
+                    {/* Day number */}
+                    <span className="text-xs font-semibold">{slot.date.getDate()}</span>
 
-                  {/* Multi-colored dots beneath for scheduled events */}
-                  <div className="flex justify-center gap-0.5 mt-auto">
-                    {slotEvents.slice(0, 3).map((evt) => (
-                      <span
-                        key={evt.id}
-                        className={`w-1.5 h-1.5 rounded-full ${
-                          evt.type === 'critical' ? 'bg-status-critical' :
-                          evt.type === 'warning' ? 'bg-status-warning' : 'bg-status-healthy'
-                        }`}
-                      />
-                    ))}
+                    {/* Multi-colored dots beneath for scheduled events */}
+                    <div className="flex justify-center gap-0.5 mt-auto">
+                      {slotEvents.slice(0, 3).map((evt) => (
+                        <span
+                          key={evt.id}
+                          className={`w-1.5 h-1.5 rounded-full ${
+                            evt.type === 'critical' ? 'bg-status-critical' :
+                            evt.type === 'warning' ? 'bg-status-warning' : 'bg-status-healthy'
+                          }`}
+                        />
+                      ))}
+                    </div>
                   </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Calendar Grid - Week view */}
+          {viewMode === 'Week' && (
+            <div className="grid grid-cols-7 gap-2 text-center">
+              {weekDays.map((d, idx) => {
+                const dStr = d.toISOString().split('T')[0];
+                const dEvents = events.filter(e => e.date === dStr);
+                const isToday = dStr === new Date().toISOString().split('T')[0];
+                const isSelected = dStr === selectedDate.toISOString().split('T')[0];
+
+                return (
+                  <div key={idx} className="flex flex-col items-center gap-1">
+                    <span className="text-[10px] font-bold text-text-secondary uppercase tracking-wider">
+                      {daysOfWeek[idx]}
+                    </span>
+                    <div
+                      onClick={() => selectDate(d)}
+                      className={`w-full aspect-square rounded-[16px] flex flex-col items-center justify-between py-2 cursor-pointer relative hover:bg-inner-bg/50 transition-all ${
+                        isSelected
+                          ? 'bg-navy-active text-white scale-102 shadow-md'
+                          : isToday
+                          ? 'bg-inner-bg text-text-primary font-bold'
+                          : 'text-text-primary'
+                      }`}
+                    >
+                      <span className="text-xs font-semibold">{d.getDate()}</span>
+                      <div className="flex justify-center gap-0.5 mt-auto">
+                        {dEvents.slice(0, 3).map((evt) => (
+                          <span
+                            key={evt.id}
+                            className={`w-1.5 h-1.5 rounded-full ${
+                              evt.type === 'critical' ? 'bg-status-critical' :
+                              evt.type === 'warning' ? 'bg-status-warning' : 'bg-status-healthy'
+                            }`}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                    {dEvents.length > 0 && (
+                      <span className="text-[9px] text-text-secondary">{dEvents.length} event{dEvents.length > 1 ? 's' : ''}</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Calendar Grid - Day view */}
+          {viewMode === 'Day' && (
+            <div className="space-y-3">
+              {selectedDateEvents.length === 0 ? (
+                <div className="text-center py-10 text-text-secondary text-sm">
+                  No scheduled events for this day.
                 </div>
-              );
-            })}
-          </div>
+              ) : (
+                selectedDateEvents.map((evt) => (
+                  <div
+                    key={evt.id}
+                    className={`p-4 rounded-[16px] border flex items-start gap-3 ${
+                      evt.type === 'critical' ? 'border-status-critical/30 bg-status-critical/5' :
+                      evt.type === 'warning' ? 'border-status-warning/30 bg-status-warning/5' :
+                      'border-status-healthy/30 bg-status-healthy/5'
+                    }`}
+                  >
+                    <span
+                      className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${
+                        evt.type === 'critical' ? 'bg-status-critical' :
+                        evt.type === 'warning' ? 'bg-status-warning' : 'bg-status-healthy'
+                      }`}
+                    />
+                    <div>
+                      <p className="text-sm font-semibold text-text-primary">{evt.title}</p>
+                      {evt.description && (
+                        <p className="text-xs text-text-secondary mt-1">{evt.description}</p>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
         </div>
 
         {/* Sync panel */}
@@ -301,12 +475,12 @@ export default function GoogleCalendar({
             <button
               onClick={onConnectCalendar}
               className={`py-2 px-4 rounded-xl text-xs font-medium flex items-center gap-2 ${
-                isConnected
+                canSyncToRealGoogleCalendar
                   ? 'bg-green-50 text-status-healthy border border-green-100'
                   : 'bg-navy-active text-white hover:shadow-md'
               }`}
             >
-              {isConnected ? (
+              {canSyncToRealGoogleCalendar ? (
                 <>
                   <Check className="w-3.5 h-3.5" />
                   Google Calendar Linked
@@ -314,21 +488,27 @@ export default function GoogleCalendar({
               ) : (
                 <>
                   <CalendarIcon className="w-3.5 h-3.5" />
-                  Connect Google Calendar
+                  {isConnected ? 'Reconnect Google Calendar' : 'Connect Google Calendar'}
                 </>
               )}
             </button>
 
             <span className="text-[10px] text-text-secondary">
-              {isConnected ? 'Real-time G-Suite events synced' : 'Simulating locally / Offline Mode'}
+              {canSyncToRealGoogleCalendar
+                ? 'Writes real events to your Google Calendar'
+                : isConnected
+                ? 'Google access expired — reconnect to resume real syncing'
+                : 'Not connected — events are saved in this app only'}
             </span>
           </div>
 
           <button
             onClick={syncDailyAverages}
-            className="py-2 px-4 bg-inner-bg hover:bg-divider text-text-primary text-xs font-medium rounded-xl border border-divider/30"
+            disabled={isSyncingToGoogle}
+            className="py-2 px-4 bg-inner-bg hover:bg-divider text-text-primary text-xs font-medium rounded-xl border border-divider/30 flex items-center gap-1.5 disabled:opacity-60"
           >
-            Sync Daily Averages
+            {isSyncingToGoogle && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+            {isSyncingToGoogle ? 'Syncing…' : 'Sync Daily Averages'}
           </button>
         </div>
       </div>
