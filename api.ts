@@ -2,7 +2,7 @@ import express from 'express';
 import { GoogleGenAI, Type } from '@google/genai';
 import dotenv from 'dotenv';
 import { initializeApp, getApps } from 'firebase/app';
-import { getFirestore, doc, setDoc, collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { getFirestore, doc, setDoc, collection, addDoc, serverTimestamp, query, where, orderBy, limit, getDocs, Timestamp } from 'firebase/firestore';
 import firebaseConfig from './firebase-applet-config.json';
 
 // This file defines the greenhouse's Express API — every /api/* route
@@ -58,6 +58,79 @@ async function logSensorReading(reading: {
     });
   } catch (err) {
     console.warn('Failed to log sensor reading to Firestore:', (err as any)?.message || err);
+  }
+}
+
+// 🤖 Chatbot tool: real historical sensor lookup (Gemini function calling).
+// Lets the chatbot answer "what was the temperature yesterday / on 2026-08-20 /
+// this week's average" from ACTUAL logged readings instead of guessing —
+// mirrors the same sensor_readings_log data and day-boundary convention the
+// Dashboard/Reports pages use (see src/utils/telemetry.ts's dayRangeMs).
+const getSensorHistoryDeclaration = {
+  name: 'get_sensor_history',
+  description:
+    "Fetches REAL logged greenhouse sensor readings (averages, min, max, sample count) for a specific past date or date range, computed from actual ESP32 telemetry stored in the database. Call this whenever the user asks about a sensor value, average, or condition for 'today's average', 'yesterday', a named/specific date, 'this week', or any period other than the live right-now reading already given to you. Never guess or estimate a historical number without calling this first.",
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+      startDate: { type: Type.STRING, description: 'Start date, inclusive, formatted YYYY-MM-DD.' },
+      endDate: { type: Type.STRING, description: 'End date, inclusive, formatted YYYY-MM-DD. Same as startDate for a single day.' },
+    },
+    required: ['startDate', 'endDate'],
+  },
+};
+
+async function runGetSensorHistory(startDateStr: string, endDateStr: string) {
+  try {
+    const startMs = new Date(`${startDateStr}T00:00:00`).getTime();
+    const endMs = new Date(`${endDateStr}T00:00:00`).getTime() + 24 * 60 * 60 * 1000;
+    if (!serverDb || Number.isNaN(startMs) || Number.isNaN(endMs)) {
+      return { hasData: false, sampleCount: 0, note: 'Sensor history is not available on this server right now.' };
+    }
+
+    const readingsRef = collection(serverDb, SENSOR_LOG_COLLECTION);
+    const q = query(
+      readingsRef,
+      where('ts', '>=', Timestamp.fromMillis(startMs)),
+      where('ts', '<', Timestamp.fromMillis(endMs)),
+      orderBy('ts', 'asc'),
+      limit(5000)
+    );
+    const snap = await getDocs(q);
+    const readings = snap.docs.map((d) => d.data() as any);
+
+    if (!readings.length) {
+      return {
+        hasData: false,
+        sampleCount: 0,
+        startDate: startDateStr,
+        endDate: endDateStr,
+        note: 'No sensor readings were logged for this date range — the hardware may not have been connected then.',
+      };
+    }
+
+    const nums = (key: string) => readings.map((r) => Number(r[key]) || 0);
+    const avg = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length;
+    const round1 = (n: number) => Math.round(n * 10) / 10;
+
+    return {
+      hasData: true,
+      startDate: startDateStr,
+      endDate: endDateStr,
+      sampleCount: readings.length,
+      avgTemperatureC: round1(avg(nums('temperature'))),
+      minTemperatureC: round1(Math.min(...nums('temperature'))),
+      maxTemperatureC: round1(Math.max(...nums('temperature'))),
+      avgHumidityPct: round1(avg(nums('humidity'))),
+      avgSoilMoisturePct: round1(avg(nums('soilMoisture'))),
+      avgLightLux: Math.round(avg(nums('lightIntensity'))),
+      avgNitrogenMgKg: Math.round(avg(nums('nitrogen'))),
+      avgPhosphorusMgKg: Math.round(avg(nums('phosphorus'))),
+      avgPotassiumMgKg: Math.round(avg(nums('potassium'))),
+    };
+  } catch (err: any) {
+    console.warn('get_sensor_history tool failed:', err?.message || err);
+    return { hasData: false, sampleCount: 0, error: 'Failed to query sensor history.' };
   }
 }
 
@@ -1022,20 +1095,30 @@ app.post('/api/chat', async (req, res) => {
     }
 
     // Call real Gemini model
-    const chat = ai.chats.create({
-      model: 'gemini-3.5-flash',
-      config: {
-        systemInstruction: `You are an expert Smart Greenhouse Assistant named "Greenhouse Assistant" specializing in automated Green Chilli cultivation (specifically MICH 2 and KA 2 Ceylon cultivars) in Sri Lanka.
-Your job is to answer questions, explain sensor telemetries, suggest agricultural remedies, help control actuators, AND adjust microclimate automation thresholds when requested.
-You are fluent in English and Sinhala (සිංහල). Respond in the language requested.
+    const systemInstruction = `You are an expert Smart Greenhouse Assistant named "Greenhouse Assistant" specializing in automated Green Chilli cultivation (specifically MICH 2 and KA 2 Ceylon cultivars) in Sri Lanka.
+Your job is to answer questions, explain sensor telemetry (live AND historical), diagnose plant health issues, help control actuators, and adjust microclimate automation thresholds.
 
-CURRENT CENSUS LOGS:
+LANGUAGE RULES (follow exactly):
+- Decide the reply language from the user's MOST RECENT message only.
+- If it is written in English, reply only in English.
+- If it is written in Sinhala Unicode script (සිංහල අකුරු), reply only in Sinhala Unicode script.
+- If it is written in "Singlish" — Sinhala words spelled out phonetically with English letters (e.g. "wathura demmada", "fan eka on karanna", "temperature eka kiyanna") — you MUST reply only in proper Sinhala Unicode script (සිංහල අකුරු). Never reply in Singlish, and never reply in English to a Sinhala/Singlish message.
+- Never mix scripts within one reply.
+
+LIVE SENSOR READINGS (right now only):
 - Air Temperature: ${sensorData.temperature}°C (Ideal: 25-32°C)
 - Air Humidity: ${sensorData.humidity}% (Ideal: 55-75%)
 - Soil Moisture Index: ${sensorData.soilMoisture}% (Ideal: 40-70%)
 - LDR Ambient Light: ${sensorData.lightIntensity} lx (Ideal: 300-1000 lx)
+- NPK: N ${sensorData.nitrogen ?? 0} / P ${sensorData.phosphorus ?? 0} / K ${sensorData.potassium ?? 0} mg/kg
 - Crop Stage: ${sensorData.growthStage}
 - Health Score: ${sensorData.healthScore}%
+
+HISTORICAL DATA RULE (very important):
+- The readings above are LIVE ONLY. For anything about a past date, a specific date, "today's average", "yesterday", "this week", or any range — you MUST call the get_sensor_history function to get REAL logged data. Never invent or estimate a historical number.
+- If the tool result has hasData:false, tell the user honestly that no readings were logged for that period (e.g. hardware wasn't connected) — do not make one up.
+- If hasData:true, quote its exact numbers (they are averages over sampleCount real logged readings).
+- "Today" means the current date; if the user doesn't give a year, assume the current year.
 
 CURRENT ACTUATOR STATUS:
 - Ventilation Fan: ${controlData.fanStatus ? 'ON' : 'OFF'}
@@ -1051,34 +1134,73 @@ CURRENT AUTOMATION THRESHOLDS:
 - Low Light Threshold (LED ON): ${activeThresholds.lightLow} lx
 - High Light Threshold (LED OFF): ${activeThresholds.lightHigh} lx
 
+PLANT DISEASE ADVICE:
+- When the user describes symptoms (leaf spots, curling, yellowing, wilting, mold, pests, stunted growth, etc.) or asks for a diagnosis in chat, give real, specific agronomic guidance for Ceylon green chilli using genuine plant pathology knowledge — name the likely condition(s) (e.g. Chilli Leaf Curl Virus, Anthracnose/Colletotrichum, powdery mildew, aphid/whitefly infestation, a specific nutrient deficiency), which symptoms match, and concrete treatment and prevention steps.
+- A text description is inherently less reliable than a photo. If it sounds like the user could take a picture, mention that the app's "Live AI Disease Detection" camera page runs a real photo-based Gemini Vision diagnosis, which is more reliable than describing it in words.
+
 INSTRUCTIONS FOR COMMANDS:
-1. Actuators: If user commands you to turn on/off fan, pump, or led lights, set "fan", "pump", or "led" true/false in commands.
-2. Thresholds: If user commands you to change or set any threshold value (e.g., "Set temperature high threshold to 34", "Set temp low to 24", "Set soil low threshold to 35%", "Set light high to 900", or in Sinhala "උෂ්ණත්ව සීමාව 34 ට වෙනස් කරන්න"):
-   - Clearly state the updated value in your "reply".
+1. Actuators: If the user commands you to turn on/off the fan, pump, or LED lights, set "fan", "pump", or "led" true/false in commands.
+2. Thresholds: If the user commands you to change or set any threshold value (e.g., "Set temperature high threshold to 34", "Set temp low to 24", "Set soil low threshold to 35%", "Set light high to 900", or in Sinhala/Singlish equivalents):
+   - Clearly state the updated value in your "reply" (in the correct language per the LANGUAGE RULES above).
    - Set the corresponding numerical command property in "commands":
      - tempHigh (number)
      - tempLow (number)
      - soilLow (number)
      - soilHigh (number)
      - lightLow (number)
-     - lightHigh (number)`,
-      },
-    });
+     - lightHigh (number)`;
 
-    // Seed recent conversation context
-    for (const h of history.slice(-6)) {
-      await chat.sendMessage({ message: h.text });
+    // Build the multi-turn conversation from prior history + the new message.
+    const priorTurns = (Array.isArray(history) ? history : []).slice(-8).map((h: any) => ({
+      role: h.sender === 'user' ? 'user' : 'model',
+      parts: [{ text: String(h.text || '') }],
+    }));
+    const baseContents = [...priorTurns, { role: 'user', parts: [{ text: message }] }];
+
+    // Phase 1: let Gemini decide whether it needs real historical data. This
+    // call is tool-enabled but NOT forced into JSON mode, since a model
+    // can't reliably emit a function call and a schema-constrained object
+    // in the same turn.
+    let toolResultNote = '';
+    try {
+      const toolPhase = await ai.models.generateContent({
+        model: 'gemini-3.5-flash',
+        contents: baseContents,
+        config: {
+          systemInstruction,
+          tools: [{ functionDeclarations: [getSensorHistoryDeclaration] }],
+        },
+      });
+
+      const calls = toolPhase.functionCalls;
+      const historyCall = calls?.find((c) => c.name === 'get_sensor_history');
+      if (historyCall) {
+        const args = (historyCall.args || {}) as { startDate?: string; endDate?: string };
+        const startDate = args.startDate || new Date().toISOString().split('T')[0];
+        const endDate = args.endDate || startDate;
+        const result = await runGetSensorHistory(startDate, endDate);
+        toolResultNote = `\n\n(System note, not from the user — REAL sensor history lookup result for ${startDate} to ${endDate}, from actual logged hardware data. Use these exact numbers if you reference this period, and be honest if hasData is false: ${JSON.stringify(result)})`;
+      }
+    } catch (toolErr: any) {
+      console.warn('Sensor history tool-call phase failed, continuing without it:', toolErr?.message || toolErr);
     }
+
+    // Phase 2: final structured reply (+ any device/threshold commands),
+    // now with the real historical data (if any) available as context.
+    const finalContents = toolResultNote
+      ? [...baseContents, { role: 'user', parts: [{ text: toolResultNote }] }]
+      : baseContents;
 
     const response = await ai.models.generateContent({
       model: 'gemini-3.5-flash',
-      contents: message,
+      contents: finalContents,
       config: {
+        systemInstruction,
         responseMimeType: 'application/json',
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            reply: { type: Type.STRING, description: 'Your conversational explanation or command verification in English or Sinhala (si-LK).' },
+            reply: { type: Type.STRING, description: 'Your conversational explanation or command verification, in English or Sinhala Unicode per the LANGUAGE RULES.' },
             commands: {
               type: Type.OBJECT,
               properties: {

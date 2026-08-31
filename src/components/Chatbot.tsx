@@ -24,6 +24,7 @@ export default function Chatbot({
   const [isTyping, setIsTyping] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isTtsEnabled, setIsTtsEnabled] = useState(true);
+  const [voiceLang, setVoiceLang] = useState<'en-US' | 'si-LK'>('en-US');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const activeThresholds = thresholds || {
@@ -65,7 +66,7 @@ export default function Chatbot({
     const recognition = new SpeechRecognition();
     recognition.continuous = false;
     recognition.interimResults = false;
-    recognition.lang = 'en-US';
+    recognition.lang = voiceLang;
 
     recognition.onstart = () => {
       setIsListening(true);
@@ -88,7 +89,10 @@ export default function Chatbot({
     recognition.start();
   };
 
-  // Text To Speech
+  // Text To Speech — for Sinhala replies, only speaks if the browser/OS
+  // actually has an installed Sinhala voice. Many browsers silently
+  // mispronounce Sinhala script with a default English voice instead of
+  // failing, which is worse than just not speaking, so we check first.
   const speakText = (text: string) => {
     if (!isTtsEnabled) return;
     const synth = window.speechSynthesis;
@@ -97,17 +101,36 @@ export default function Chatbot({
     synth.cancel();
 
     const plainText = text.replace(/[*#_`~]/g, '');
-    const utterance = new SpeechSynthesisUtterance(plainText);
-    
     const isSinhala = /[\u0D80-\u0DFF]/.test(text);
-    if (isSinhala) {
-      utterance.lang = 'si-LK';
+
+    const doSpeak = (voices: SpeechSynthesisVoice[]) => {
+      const utterance = new SpeechSynthesisUtterance(plainText);
+      if (isSinhala) {
+        const sinhalaVoice = voices.find((v) => v.lang.toLowerCase().startsWith('si'));
+        if (!sinhalaVoice) {
+          console.warn('No Sinhala voice installed on this device/browser — skipping spoken reply for this message (text reply is still shown).');
+          return;
+        }
+        utterance.voice = sinhalaVoice;
+        utterance.lang = sinhalaVoice.lang;
+      } else {
+        utterance.lang = 'en-US';
+      }
+      utterance.rate = 1.0;
+      synth.speak(utterance);
+    };
+
+    const voices = synth.getVoices();
+    if (voices.length === 0) {
+      // Chrome loads voices asynchronously on first use — wait once, then speak.
+      const handleVoicesChanged = () => {
+        synth.removeEventListener('voiceschanged', handleVoicesChanged);
+        doSpeak(synth.getVoices());
+      };
+      synth.addEventListener('voiceschanged', handleVoicesChanged);
     } else {
-      utterance.lang = 'en-US';
+      doSpeak(voices);
     }
-    
-    utterance.rate = 1.0;
-    synth.speak(utterance);
   };
 
   const handleSendMessage = async (textToSend?: string) => {
@@ -382,6 +405,16 @@ export default function Chatbot({
 
           {/* Input Box */}
           <div className="p-3 bg-white border-t border-divider/40 flex items-center gap-2">
+            {/* Voice input language toggle — Web Speech API needs to know
+                the spoken language up front, so pick it before pressing mic */}
+            <button
+              onClick={() => setVoiceLang(voiceLang === 'en-US' ? 'si-LK' : 'en-US')}
+              className="w-9 h-9 shrink-0 rounded-xl flex items-center justify-center text-[10px] font-bold bg-inner-bg text-text-secondary hover:text-text-primary hover:bg-divider transition-all"
+              title={voiceLang === 'en-US' ? 'Voice input language: English (tap to switch to Sinhala)' : 'Voice input language: Sinhala (tap to switch to English)'}
+            >
+              {voiceLang === 'en-US' ? 'EN' : 'සිං'}
+            </button>
+
             {/* Mic Button */}
             <button
               onClick={startSpeechRecognition}
@@ -390,7 +423,7 @@ export default function Chatbot({
                   ? 'bg-status-critical text-white animate-pulse' 
                   : 'bg-inner-bg text-text-secondary hover:text-text-primary hover:bg-divider'
               }`}
-              title="Speak message"
+              title={`Speak message (${voiceLang === 'en-US' ? 'English' : 'Sinhala'})`}
             >
               <Mic className="w-4 h-4 stroke-[1.5]" />
             </button>
