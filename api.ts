@@ -255,137 +255,37 @@ app.post('/api/crop-analysis', async (req, res) => {
   }
 });
 
-// 📷 ESP32-CAM In-Memory State & AI Vision Analyzer
-const generateDefaultPlantSvg = (heightCm: number, diseaseName: string) => {
-  const isHealthy = diseaseName.toLowerCase().includes('healthy');
-  const leafColor = isHealthy ? '#10b981' : '#eab308';
-  return `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480" viewBox="0 0 640 480" style="background:%230f172a;">
-    <rect width="640" height="480" fill="%230b1329"/>
-    <grid width="640" height="480" fill="none"/>
-    <line x1="50" y1="40" x2="50" y2="440" stroke="%23334155" stroke-width="2" stroke-dasharray="4"/>
-    <text x="25" y="430" fill="%2394a3b8" font-family="monospace" font-size="10">0 cm</text>
-    <text x="20" y="240" fill="%2338bdf8" font-family="monospace" font-size="10">15 cm</text>
-    <text x="20" y="80" fill="%2338bdf8" font-family="monospace" font-size="12" font-weight="bold">${heightCm} cm</text>
-    <line x1="45" y1="80" x2="55" y2="80" stroke="%2338bdf8" stroke-width="2"/>
-    
-    <!-- Plant Stem -->
-    <path d="M 320 440 Q 315 280 320 120" stroke="%23047857" stroke-width="8" fill="none"/>
-    <!-- Foliage Leaves -->
-    <ellipse cx="280" cy="300" rx="45" ry="25" fill="${leafColor}" transform="rotate(-25 280 300)" opacity="0.9"/>
-    <ellipse cx="360" cy="270" rx="50" ry="28" fill="${leafColor}" transform="rotate(20 360 270)" opacity="0.9"/>
-    <ellipse cx="270" cy="210" rx="40" ry="22" fill="${leafColor}" transform="rotate(-35 270 210)" opacity="0.9"/>
-    <ellipse cx="360" cy="180" rx="42" ry="24" fill="${leafColor}" transform="rotate(30 360 180)" opacity="0.9"/>
-    <ellipse cx="320" cy="120" rx="30" ry="18" fill="%2334d399" transform="rotate(0 320 120)" opacity="0.95"/>
-    
-    <!-- Chilli Pods -->
-    <path d="M 290 280 Q 280 320 275 340" stroke="%23ef4444" stroke-width="6" stroke-linecap="round" fill="none"/>
-    <path d="M 350 250 Q 365 290 370 310" stroke="%2322c55e" stroke-width="6" stroke-linecap="round" fill="none"/>
-
-    <!-- AI Bounding Overlay -->
-    <rect x="210" y="90" width="220" height="340" fill="none" stroke="%2310b981" stroke-width="2" stroke-dasharray="6,4" rx="12"/>
-    <rect x="210" y="65" width="220" height="22" fill="%2310b981" rx="4"/>
-    <text x="220" y="80" fill="white" font-family="monospace" font-size="11" font-weight="bold">ESP32-CAM AI: ${diseaseName} (${heightCm}cm)</text>
-
-    <!-- Timestamp Overlay -->
-    <rect x="420" y="420" width="200" height="40" fill="rgba(0,0,0,0.7)" rx="8"/>
-    <text x="430" y="436" fill="%234ade80" font-family="monospace" font-size="10">ESP32-CAM IP: 192.168.1.105</text>
-    <text x="430" y="450" fill="%2394a3b8" font-family="monospace" font-size="9">FRAME SYNC: REALTIME LIVE</text>
-  </svg>`;
-};
-
-let latestESP32Frame = {
-  id: 'esp32_frame_init',
-  imageUrl: generateDefaultPlantSvg(26.5, 'Healthy Ceylon Green Chilli'),
-  timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-  isoTime: new Date().toISOString(),
-  source: 'esp32_cam',
-  ipAddress: '192.168.1.105',
-  rssi: -62,
-  resolution: '1600x1200 UXGA',
-  fps: 15,
-  disease: {
-    diseaseName: 'Healthy Ceylon Green Chilli',
-    confidence: 96,
-    severity: 'Healthy' as const,
-    symptoms: ['Normal emerald leaf turgidity', 'No fungal spotting or virus curling detected'],
-    treatment: ['No active chemical treatment required.', 'Continue standard nutrient fertigation schedule.'],
-    preventive: ['Maintain nylon insect netting over greenhouse vents.', 'Inspect leaf undersides weekly for aphids.'],
-  },
-  growth: {
-    plantHeightCm: 26.5,
-    heightGrowthRate: 0.8,
-    stemDiameterMm: 4.5,
-    leafCount: 22,
-    growthStage: 'Vegetative' as const,
-    healthScore: 94,
-    estDaysToHarvest: 32,
-    observations: 'Strong central stem taper with 22 vigorous leaves. High chlorophyll absorption rate.',
-  },
-};
-
-let esp32History = [
-  {
-    ...latestESP32Frame,
-    id: 'esp32_h1',
-    timestamp: '2026-07-21 11:30:00',
-    growth: { ...latestESP32Frame.growth, plantHeightCm: 26.5 },
-  },
-  {
-    ...latestESP32Frame,
-    id: 'esp32_h2',
-    timestamp: '2026-07-20 18:00:00',
-    growth: { ...latestESP32Frame.growth, plantHeightCm: 25.7 },
-  },
-  {
-    ...latestESP32Frame,
-    id: 'esp32_h3',
-    timestamp: '2026-07-19 12:00:00',
-    growth: { ...latestESP32Frame.growth, plantHeightCm: 24.9 },
-  },
-  {
-    ...latestESP32Frame,
-    id: 'esp32_h4',
-    timestamp: '2026-07-18 09:15:00',
-    growth: { ...latestESP32Frame.growth, plantHeightCm: 24.1 },
-  }
-];
-
-// 📷 ESP32-CAM Upload Endpoint (Called by ESP32-CAM Module or Client)
+// 📷 ESP32-CAM In-Memory State — starts empty. There is no simulated/demo
+// frame: until a real ESP32-CAM (or the webcam/upload fallback) posts a
+// photo to /api/esp32cam/upload, latestESP32Frame stays null and the
+// frontend shows a "no camera connected" message instead of fake data.
+let latestESP32Frame: any = null;
+let esp32History: any[] = [];
+// 📷 ESP32-CAM Upload Endpoint (Called by a real ESP32-CAM module, the
+// browser webcam capture, or a manual file upload — all three post here)
 app.post('/api/esp32cam/upload', async (req, res) => {
   try {
     const { image, mimeType, ipAddress, rssi, source } = req.body;
-    const clientIp = ipAddress || req.ip || '192.168.1.105';
-    
+
+    if (!image) {
+      return res.status(400).json({ error: 'No image provided.' });
+    }
+
+    const clientIp = ipAddress || req.ip || null;
+
     let base64Image = image;
     let actualMime = mimeType || 'image/jpeg';
 
-    if (image && image.startsWith('data:')) {
+    if (image.startsWith('data:')) {
       const parts = image.split(',');
       actualMime = parts[0].match(/data:(.*?);/)?.[1] || 'image/jpeg';
       base64Image = parts[1];
     }
 
-    let diseaseData = {
-      diseaseName: 'Healthy Ceylon Green Chilli',
-      confidence: 95,
-      severity: 'Healthy' as const,
-      symptoms: ['Optimal foliage color', 'Sturdy stem structure'],
-      treatment: ['No treatment needed. Plant is thriving!'],
-      preventive: ['Keep soil moisture between 50-70%.'],
-    };
+    let diseaseData: any = null;
+    let growthData: any = null;
 
-    let growthData = {
-      plantHeightCm: parseFloat((26.0 + Math.random() * 2).toFixed(1)),
-      heightGrowthRate: 0.8,
-      stemDiameterMm: parseFloat((4.2 + Math.random() * 0.8).toFixed(1)),
-      leafCount: Math.floor(20 + Math.random() * 8),
-      growthStage: 'Vegetative' as const,
-      healthScore: Math.floor(88 + Math.random() * 10),
-      estDaysToHarvest: 30,
-      observations: 'Foliage density is optimal with no signs of pest damage or nutrient lockout.',
-    };
-
-    // If real Gemini API Key is configured, run Gemini Vision on the ESP32-CAM image
+    // Run real Gemini Vision analysis when a server API key is configured.
     if (apiKey && base64Image) {
       try {
         const imagePart = {
@@ -439,12 +339,12 @@ app.post('/api/esp32cam/upload', async (req, res) => {
         if (parsed.plantHeightCm) {
           growthData = {
             plantHeightCm: parsed.plantHeightCm,
-            heightGrowthRate: parsed.heightGrowthRate || 0.8,
-            stemDiameterMm: parsed.stemDiameterMm || 4.5,
-            leafCount: parsed.leafCount || 20,
-            growthStage: (parsed.growthStage || 'Vegetative') as any,
-            healthScore: parsed.healthScore || 90,
-            estDaysToHarvest: parsed.estDaysToHarvest || 30,
+            heightGrowthRate: parsed.heightGrowthRate || 0,
+            stemDiameterMm: parsed.stemDiameterMm || 0,
+            leafCount: parsed.leafCount || 0,
+            growthStage: (parsed.growthStage || 'Seedling') as any,
+            healthScore: parsed.healthScore || 0,
+            estDaysToHarvest: parsed.estDaysToHarvest || 0,
             observations: parsed.observations || 'Automated ESP32-CAM frame analysis completed.',
           };
         }
@@ -453,20 +353,48 @@ app.post('/api/esp32cam/upload', async (req, res) => {
       }
     }
 
-    const frameUrl = image || generateDefaultPlantSvg(growthData.plantHeightCm, diseaseData.diseaseName);
+    const analysisAvailable = !!(diseaseData && growthData);
+
+    // No fabricated numbers: if there's no API key, or Gemini didn't return
+    // a usable result, say so honestly instead of inventing a diagnosis.
+    if (!diseaseData) {
+      diseaseData = {
+        diseaseName: 'AI Analysis Unavailable',
+        confidence: 0,
+        severity: 'Unknown',
+        symptoms: apiKey
+          ? ['Gemini could not analyze this image — see server logs.']
+          : ['GEMINI_API_KEY is not configured on the server.'],
+        treatment: [],
+        preventive: [],
+      };
+    }
+    if (!growthData) {
+      growthData = {
+        plantHeightCm: 0,
+        heightGrowthRate: 0,
+        stemDiameterMm: 0,
+        leafCount: 0,
+        growthStage: 'Seedling',
+        healthScore: 0,
+        estDaysToHarvest: 0,
+        observations: 'AI growth analysis unavailable — configure GEMINI_API_KEY to enable automatic measurements.',
+      };
+    }
 
     latestESP32Frame = {
       id: 'esp32_' + Date.now(),
-      imageUrl: frameUrl,
+      imageUrl: image,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
       isoTime: new Date().toISOString(),
       source: source || 'esp32_cam',
       ipAddress: clientIp,
-      rssi: rssi || -58,
+      rssi: typeof rssi === 'number' ? rssi : null,
       resolution: '1600x1200 UXGA',
       fps: 15,
       disease: diseaseData,
       growth: growthData,
+      analysisAvailable,
     };
 
     esp32History.unshift(latestESP32Frame);
@@ -474,7 +402,9 @@ app.post('/api/esp32cam/upload', async (req, res) => {
 
     return res.json({
       status: 'success',
-      message: 'ESP32-CAM image received and analyzed successfully.',
+      message: analysisAvailable
+        ? 'ESP32-CAM image received and analyzed successfully.'
+        : 'Image received, but AI analysis is unavailable (no GEMINI_API_KEY configured).',
       frame: latestESP32Frame,
     });
 
@@ -484,75 +414,20 @@ app.post('/api/esp32cam/upload', async (req, res) => {
   }
 });
 
-// GET Latest ESP32-CAM Snapshot & Analysis
+// GET Latest ESP32-CAM Snapshot & Analysis — frame is null until a real
+// photo has been posted to /api/esp32cam/upload.
 app.get('/api/esp32cam/latest', (req, res) => {
   return res.json({
-    status: 'online',
+    status: latestESP32Frame ? 'online' : 'offline',
     frame: latestESP32Frame,
     totalFramesCaptured: esp32History.length,
   });
 });
 
-// GET ESP32-CAM Capture History
+// GET ESP32-CAM Capture History (real captures only — empty until the first upload)
 app.get('/api/esp32cam/history', (req, res) => {
   return res.json({
     history: esp32History,
-  });
-});
-
-// POST Trigger fresh frame capture (simulated or webcam)
-app.post('/api/esp32cam/trigger-capture', async (req, res) => {
-  const currentHeight = latestESP32Frame.growth.plantHeightCm + parseFloat((0.1 + Math.random() * 0.2).toFixed(2));
-  const newHeight = parseFloat(currentHeight.toFixed(1));
-  
-  const diseases = [
-    'Healthy Ceylon Green Chilli',
-    'Healthy Ceylon Green Chilli',
-    'Chilli Leaf Curl Virus',
-    'Anthracnose (Colletotrichum)',
-  ];
-  const selectedDisease = diseases[Math.floor(Math.random() * diseases.length)];
-
-  latestESP32Frame = {
-    id: 'esp32_trig_' + Date.now(),
-    imageUrl: generateDefaultPlantSvg(newHeight, selectedDisease),
-    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-    isoTime: new Date().toISOString(),
-    source: 'esp32_cam',
-    ipAddress: '192.168.1.105',
-    rssi: -60,
-    resolution: '1600x1200 UXGA',
-    fps: 15,
-    disease: {
-      diseaseName: selectedDisease,
-      confidence: selectedDisease.includes('Healthy') ? 97 : 89,
-      severity: (selectedDisease.includes('Healthy') ? 'Healthy' : selectedDisease.includes('Virus') ? 'Warning' : 'Critical') as any,
-      symptoms: selectedDisease.includes('Healthy') 
-        ? ['Leaf turgidity normal', 'No dark lesions or virus curling'] 
-        : ['Leaf curling at apical tips', 'Mild chlorosis on young foliage'],
-      treatment: selectedDisease.includes('Healthy')
-        ? ['Maintain standard fertigation regimen.']
-        : ['Spray organic Neem oil (5ml/L)', 'Isolate affected foliage'],
-      preventive: ['Maintain fine insect netting on greenhouse vents'],
-    },
-    growth: {
-      plantHeightCm: newHeight,
-      heightGrowthRate: 0.8,
-      stemDiameterMm: parseFloat((4.3 + (newHeight - 20) * 0.1).toFixed(1)),
-      leafCount: Math.floor(newHeight * 0.9),
-      growthStage: (newHeight > 30 ? 'Flowering' : 'Vegetative') as any,
-      healthScore: selectedDisease.includes('Healthy') ? 95 : 78,
-      estDaysToHarvest: Math.max(10, Math.round(60 - newHeight * 1.2)),
-      observations: `ESP32-CAM height scan recorded ${newHeight}cm. Growth velocity is +0.8 cm/day.`,
-    }
-  };
-
-  esp32History.unshift(latestESP32Frame);
-  if (esp32History.length > 20) esp32History.pop();
-
-  return res.json({
-    status: 'success',
-    frame: latestESP32Frame,
   });
 });
 

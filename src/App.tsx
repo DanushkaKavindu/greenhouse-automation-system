@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { PageId, SensorData, ControlData, CalendarEvent, DiseaseDetectionHistory, Thresholds, CropVariety } from './types';
+import { PageId, SensorData, ControlData, CalendarEvent, Thresholds, CropVariety } from './types';
 import Sidebar from './components/Sidebar';
 import MobileNav from './components/MobileNav';
 import Chatbot from './components/Chatbot';
@@ -267,19 +267,6 @@ export default function App() {
   ]);
 
   const [isCalendarConnected, setIsCalendarConnected] = useState(false);
-
-  // AI disease diagnosis list with dynamic current date
-  const [diagnosisHistory, setDiagnosisHistory] = useState<DiseaseDetectionHistory[]>([
-    {
-      id: 'diag_1',
-      diseaseName: 'MICH 2 Healthy Chilli',
-      confidence: 96,
-      severity: 'Healthy',
-      timestamp: getTodayDateStr(),
-      treatment: ['Keep soil moisture stable.'],
-      preventive: ['Ventilate regularly.'],
-    }
-  ]);
 
   // Connect real-time Firestore database hooks for live synchronization
   useEffect(() => {
@@ -553,9 +540,6 @@ export default function App() {
 
         {user && activePage === 'ai-analysis' && (
           <AIAnalysis 
-            sensorData={sensorData}
-            diagnosisHistory={diagnosisHistory}
-            onAddDiagnosis={(item) => setDiagnosisHistory((prev) => [item, ...prev])}
             onUpdateHealthScore={handleUpdateHealthScore}
           />
         )}

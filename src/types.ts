@@ -27,17 +27,6 @@ export interface UserProfile {
   createdAt: any;
 }
 
-export interface DiseaseDetectionHistory {
-  id: string;
-  diseaseName: string;
-  confidence: number;
-  severity: 'Healthy' | 'Warning' | 'Critical';
-  timestamp: any;
-  treatment: string[];
-  preventive: string[];
-  imageUrl?: string;
-}
-
 export interface ChatMessage {
   id: string;
   sender: 'user' | 'assistant';
@@ -91,7 +80,7 @@ export interface ESP32CamFrame {
   disease: {
     diseaseName: string;
     confidence: number;
-    severity: 'Healthy' | 'Warning' | 'Critical';
+    severity: 'Healthy' | 'Warning' | 'Critical' | 'Unknown';
     symptoms: string[];
     treatment: string[];
     preventive: string[];
@@ -106,6 +95,10 @@ export interface ESP32CamFrame {
     estDaysToHarvest: number;
     observations: string;
   };
+  // False when the server had no GEMINI_API_KEY configured (or the AI call
+  // failed) at the time this frame was analyzed — disease/growth fields are
+  // honest placeholders (zeroed / "Unknown"), not a real AI read.
+  analysisAvailable: boolean;
 }
 
 export interface CropVariety {
