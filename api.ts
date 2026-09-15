@@ -61,6 +61,25 @@ async function logSensorReading(reading: {
   }
 }
 
+const CAMERA_LOG_COLLECTION = 'camera_captures_log';
+
+// Persists every real captured frame (ESP32-CAM auto-upload, manual photo
+// upload, or browser webcam capture) so the AI Analysis page's history and
+// any future disease-trend view survive a server restart instead of living
+// only in the 20-item in-memory ring buffer below. Never blocks or fails
+// the upload response if Firestore is unavailable.
+async function logCameraCapture(frame: any) {
+  if (!serverDb) return;
+  try {
+    await addDoc(collection(serverDb, CAMERA_LOG_COLLECTION), {
+      ...frame,
+      ts: serverTimestamp(),
+    });
+  } catch (err) {
+    console.warn('Failed to log camera capture to Firestore:', (err as any)?.message || err);
+  }
+}
+
 // 🤖 Chatbot tool: real historical sensor lookup (Gemini function calling).
 // Lets the chatbot answer "what was the temperature yesterday / on 2026-08-20 /
 // this week's average" from ACTUAL logged readings instead of guessing —
@@ -463,7 +482,7 @@ app.post('/api/esp32cam/upload', async (req, res) => {
       source: source || 'esp32_cam',
       ipAddress: clientIp,
       rssi: typeof rssi === 'number' ? rssi : null,
-      resolution: '1600x1200 UXGA',
+      resolution: (source || 'esp32_cam') === 'esp32_cam' ? 'ESP32-CAM (SVGA 800x600)' : 'Uploaded photo',
       fps: 15,
       disease: diseaseData,
       growth: growthData,
@@ -472,6 +491,10 @@ app.post('/api/esp32cam/upload', async (req, res) => {
 
     esp32History.unshift(latestESP32Frame);
     if (esp32History.length > 20) esp32History.pop();
+
+    // Durable copy in Firestore -- the in-memory list above is just a fast
+    // 20-item cache and is wiped on every server restart.
+    await logCameraCapture(latestESP32Frame);
 
     return res.json({
       status: 'success',
@@ -488,20 +511,54 @@ app.post('/api/esp32cam/upload', async (req, res) => {
 });
 
 // GET Latest ESP32-CAM Snapshot & Analysis — frame is null until a real
-// photo has been posted to /api/esp32cam/upload.
-app.get('/api/esp32cam/latest', (req, res) => {
-  return res.json({
-    status: latestESP32Frame ? 'online' : 'offline',
-    frame: latestESP32Frame,
-    totalFramesCaptured: esp32History.length,
-  });
+// photo has been posted to /api/esp32cam/upload. Falls back to the most
+// recent Firestore-persisted capture when the in-memory cache is empty
+// (e.g. right after a server restart), instead of reporting "no camera"
+// when real history actually exists.
+app.get('/api/esp32cam/latest', async (req, res) => {
+  if (latestESP32Frame) {
+    return res.json({
+      status: 'online',
+      frame: latestESP32Frame,
+      totalFramesCaptured: esp32History.length,
+    });
+  }
+
+  if (serverDb) {
+    try {
+      const q = query(collection(serverDb, CAMERA_LOG_COLLECTION), orderBy('ts', 'desc'), limit(1));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const { ts, ...frame } = snap.docs[0].data() as any;
+        return res.json({ status: 'online', frame, totalFramesCaptured: null });
+      }
+    } catch (err) {
+      console.warn('Failed to read latest camera capture from Firestore:', (err as any)?.message || err);
+    }
+  }
+
+  return res.json({ status: 'offline', frame: null, totalFramesCaptured: 0 });
 });
 
-// GET ESP32-CAM Capture History (real captures only — empty until the first upload)
-app.get('/api/esp32cam/history', (req, res) => {
-  return res.json({
-    history: esp32History,
-  });
+// GET ESP32-CAM Capture History — real captures only. Reads the persisted
+// Firestore log (survives restarts, not capped at 20) when available, and
+// falls back to the in-memory ring buffer if Firestore is unreachable.
+app.get('/api/esp32cam/history', async (req, res) => {
+  if (serverDb) {
+    try {
+      const q = query(collection(serverDb, CAMERA_LOG_COLLECTION), orderBy('ts', 'desc'), limit(50));
+      const snap = await getDocs(q);
+      const history = snap.docs.map((d) => {
+        const { ts, ...frame } = d.data() as any;
+        return frame;
+      });
+      return res.json({ history });
+    } catch (err) {
+      console.warn('Failed to read camera capture history from Firestore:', (err as any)?.message || err);
+    }
+  }
+
+  return res.json({ history: esp32History });
 });
 
 // 🌐 Real Physical Greenhouse IoT Telemetry In-Memory Store
@@ -914,6 +971,7 @@ app.get('/api/esp32cam/code', (req, res) => {
   const code = `#include "esp_camera.h"
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <ArduinoJson.h>
 
 // WiFi Configuration
 const char* ssid = "YOUR_WIFI_SSID";
@@ -965,15 +1023,11 @@ void setup() {
   config.xclk_freq_hz = 20000000;
   config.pixel_format = PIXFORMAT_JPEG;
   
-  if(psramFound()){
-    config.frame_size = FRAMESIZE_UXGA; // 1600x1200
-    config.jpeg_quality = 10;
-    config.fb_count = 2;
-  } else {
-    config.frame_size = FRAMESIZE_SVGA;
-    config.jpeg_quality = 12;
-    config.fb_count = 1;
-  }
+  // SVGA (800x600) is plenty of detail for AI disease/growth analysis while
+  // keeping each base64-encoded upload small and fast over WiFi every 60s.
+  config.frame_size = FRAMESIZE_SVGA;
+  config.jpeg_quality = 12;
+  config.fb_count = psramFound() ? 2 : 1;
 
   // Camera init
   esp_err_t err = esp_camera_init(&config);
@@ -988,12 +1042,44 @@ void setup() {
     delay(500);
     Serial.print(".");
   }
-  Serial.println("\\nWiFi Connected! IP: " + WiFi.localIP().toString());
+  Serial.println("\nWiFi Connected! IP: " + WiFi.localIP().toString());
 }
 
 void loop() {
   captureAndSendFrame();
-  delay(30000); // Send photo frame every 30 seconds
+  delay(60000); // Capture + upload a frame every 60 seconds for disease/growth analysis
+}
+
+// Minimal base64 encoder (no external library needed) -- the server's
+// /api/esp32cam/upload endpoint expects a JSON body with a base64-encoded
+// image, not raw JPEG bytes.
+String base64Encode(const uint8_t* data, size_t len) {
+  static const char* chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  String out;
+  out.reserve(((len + 2) / 3) * 4);
+  size_t i = 0;
+  while (i + 3 <= len) {
+    uint32_t n = ((uint32_t)data[i] << 16) | ((uint32_t)data[i + 1] << 8) | data[i + 2];
+    out += chars[(n >> 18) & 0x3F];
+    out += chars[(n >> 12) & 0x3F];
+    out += chars[(n >> 6) & 0x3F];
+    out += chars[n & 0x3F];
+    i += 3;
+  }
+  size_t remaining = len - i;
+  if (remaining == 1) {
+    uint32_t n = (uint32_t)data[i] << 16;
+    out += chars[(n >> 18) & 0x3F];
+    out += chars[(n >> 12) & 0x3F];
+    out += "==";
+  } else if (remaining == 2) {
+    uint32_t n = ((uint32_t)data[i] << 16) | ((uint32_t)data[i + 1] << 8);
+    out += chars[(n >> 18) & 0x3F];
+    out += chars[(n >> 12) & 0x3F];
+    out += chars[(n >> 6) & 0x3F];
+    out += "=";
+  }
+  return out;
 }
 
 void captureAndSendFrame() {
@@ -1004,15 +1090,27 @@ void captureAndSendFrame() {
   }
 
   if(WiFi.status() == WL_CONNECTED) {
+    String base64Image = base64Encode(fb->buf, fb->len);
+
+    DynamicJsonDocument doc(base64Image.length() + 1024);
+    doc["image"] = "data:image/jpeg;base64," + base64Image;
+    doc["mimeType"] = "image/jpeg";
+    doc["source"] = "esp32_cam";
+    doc["ipAddress"] = WiFi.localIP().toString();
+    doc["rssi"] = WiFi.RSSI();
+
+    String payload;
+    serializeJson(doc, payload);
+
     HTTPClient http;
     http.begin(serverUrl);
-    http.addHeader("Content-Type", "image/jpeg");
-    
-    int httpResponseCode = http.POST(fb->buf, fb->len);
+    http.addHeader("Content-Type", "application/json");
+
+    int httpResponseCode = http.POST(payload);
     if(httpResponseCode > 0) {
-      Serial.printf("Frame sent successfully! Server HTTP Response: %d\\n", httpResponseCode);
+      Serial.printf("Frame sent successfully! Server HTTP Response: %d\n", httpResponseCode);
     } else {
-      Serial.printf("Error sending frame: %s\\n", http.errorToString(httpResponseCode).c_str());
+      Serial.printf("Error sending frame: %s\n", http.errorToString(httpResponseCode).c_str());
     }
     http.end();
   }
