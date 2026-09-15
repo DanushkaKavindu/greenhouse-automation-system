@@ -348,19 +348,26 @@ export default function HardwareConnectModal({
             </div>
           )}
 
+
           {/* TAB 4: GPIO WIRING PINOUT */}
           {activeTab === 'wiring' && (
             <div className="space-y-4">
               <h4 className="text-sm font-bold text-text-primary">
-                ESP32 Hardware Pin Assignment Table
+                ESP32-S3-DevKitC-1 Hardware Pin Assignment Table
               </h4>
+              <p className="text-xs text-text-secondary">
+                These GPIOs avoid the ESP32-S3 strapping pins (0, 3, 45, 46), the native-USB pins
+                (19, 20), the UART0 debug pins used by Serial (43, 44), and the SPI flash / octal
+                PSRAM pins (26-37 on R8 modules) &mdash; safe on both the official DevKitC-1 board and
+                bare WROOM-1 breakouts.
+              </p>
               <div className="overflow-x-auto border border-divider/20 rounded-2xl">
                 <table className="w-full text-xs text-left">
                   <thead className="bg-inner-bg text-[11px] font-mono uppercase text-text-secondary border-b border-divider/20">
                     <tr>
                       <th className="p-3">Component</th>
                       <th className="p-3">Sensor / Module Pin</th>
-                      <th className="p-3">ESP32 Pin</th>
+                      <th className="p-3">ESP32-S3 Pin</th>
                       <th className="p-3">Description</th>
                     </tr>
                   </thead>
@@ -374,50 +381,62 @@ export default function HardwareConnectModal({
                     <tr className="hover:bg-inner-bg/40">
                       <td className="p-3 font-bold text-text-primary">Capacitive Soil Moisture</td>
                       <td className="p-3 text-text-secondary">AOUT (Analog Out)</td>
-                      <td className="p-3 font-bold text-emerald-600">GPIO 34 (ADC1)</td>
+                      <td className="p-3 font-bold text-emerald-600">GPIO 1 (ADC1_CH0)</td>
                       <td className="p-3 text-text-secondary">Volumetric Soil Water Content (0-100%)</td>
                     </tr>
                     <tr className="hover:bg-inner-bg/40">
                       <td className="p-3 font-bold text-text-primary">LDR / Photoresistor</td>
                       <td className="p-3 text-text-secondary">AOUT (Analog Out)</td>
-                      <td className="p-3 font-bold text-emerald-600">GPIO 35 (ADC1)</td>
+                      <td className="p-3 font-bold text-emerald-600">GPIO 2 (ADC1_CH1)</td>
                       <td className="p-3 text-text-secondary">Greenhouse Daylight Lux Measurement</td>
-                    </tr>
-                    <tr className="hover:bg-inner-bg/40">
-                      <td className="p-3 font-bold text-text-primary">RS485 NPK Sensor (MAX485)</td>
-                      <td className="p-3 text-text-secondary">RO (Receiver Out)</td>
-                      <td className="p-3 font-bold text-emerald-600">GPIO 16 (RX2)</td>
-                      <td className="p-3 text-text-secondary">Serial Modbus RTU Soil N-P-K readings</td>
-                    </tr>
-                    <tr className="hover:bg-inner-bg/40">
-                      <td className="p-3 font-bold text-text-primary">RS485 NPK Sensor (MAX485)</td>
-                      <td className="p-3 text-text-secondary">DI (Driver In)</td>
-                      <td className="p-3 font-bold text-emerald-600">GPIO 17 (TX2)</td>
-                      <td className="p-3 text-text-secondary">Serial Modbus RTU Command Transmitter</td>
-                    </tr>
-                    <tr className="hover:bg-inner-bg/40">
-                      <td className="p-3 font-bold text-text-primary">RS485 NPK Sensor (MAX485)</td>
-                      <td className="p-3 text-text-secondary">DE + RE Pins</td>
-                      <td className="p-3 font-bold text-emerald-600">GPIO 5</td>
-                      <td className="p-3 text-text-secondary">Direction Control (HIGH=Tx, LOW=Rx)</td>
                     </tr>
                     <tr className="hover:bg-inner-bg/40">
                       <td className="p-3 font-bold text-text-primary">Relay 1 (Ventilation Fan)</td>
                       <td className="p-3 text-text-secondary">IN1</td>
-                      <td className="p-3 font-bold text-emerald-600">GPIO 18</td>
+                      <td className="p-3 font-bold text-emerald-600">GPIO 5</td>
                       <td className="p-3 text-text-secondary">Exhaust Fan AC / 12V DC Relay</td>
                     </tr>
                     <tr className="hover:bg-inner-bg/40">
                       <td className="p-3 font-bold text-text-primary">Relay 2 (Water Pump)</td>
                       <td className="p-3 text-text-secondary">IN2</td>
-                      <td className="p-3 font-bold text-emerald-600">GPIO 19</td>
+                      <td className="p-3 font-bold text-emerald-600">GPIO 6</td>
                       <td className="p-3 text-text-secondary">Micro-Drip Irrigation Solenoid / Pump</td>
                     </tr>
                     <tr className="hover:bg-inner-bg/40">
                       <td className="p-3 font-bold text-text-primary">Relay 3 (Grow LEDs)</td>
                       <td className="p-3 text-text-secondary">IN3</td>
-                      <td className="p-3 font-bold text-emerald-600">GPIO 23</td>
+                      <td className="p-3 font-bold text-emerald-600">GPIO 7</td>
                       <td className="p-3 text-text-secondary">Supplementary Horticultural LED Bars</td>
+                    </tr>
+                    <tr className="hover:bg-inner-bg/40">
+                      <td className="p-3 font-bold text-text-primary">OLED Display (SSD1306)</td>
+                      <td className="p-3 text-text-secondary">SDA</td>
+                      <td className="p-3 font-bold text-emerald-600">GPIO 8</td>
+                      <td className="p-3 text-text-secondary">128x64 I2C On-Site Live Readout</td>
+                    </tr>
+                    <tr className="hover:bg-inner-bg/40">
+                      <td className="p-3 font-bold text-text-primary">OLED Display (SSD1306)</td>
+                      <td className="p-3 text-text-secondary">SCL</td>
+                      <td className="p-3 font-bold text-emerald-600">GPIO 9</td>
+                      <td className="p-3 text-text-secondary">128x64 I2C On-Site Live Readout</td>
+                    </tr>
+                    <tr className="hover:bg-inner-bg/40">
+                      <td className="p-3 font-bold text-text-primary">RS485 NPK Sensor (MAX485)</td>
+                      <td className="p-3 text-text-secondary">RO (Receiver Out)</td>
+                      <td className="p-3 font-bold text-emerald-600">GPIO 16 (RX1)</td>
+                      <td className="p-3 text-text-secondary">Serial Modbus RTU Soil N-P-K readings</td>
+                    </tr>
+                    <tr className="hover:bg-inner-bg/40">
+                      <td className="p-3 font-bold text-text-primary">RS485 NPK Sensor (MAX485)</td>
+                      <td className="p-3 text-text-secondary">DI (Driver In)</td>
+                      <td className="p-3 font-bold text-emerald-600">GPIO 17 (TX1)</td>
+                      <td className="p-3 text-text-secondary">Serial Modbus RTU Command Transmitter</td>
+                    </tr>
+                    <tr className="hover:bg-inner-bg/40">
+                      <td className="p-3 font-bold text-text-primary">RS485 NPK Sensor (MAX485)</td>
+                      <td className="p-3 text-text-secondary">DE + RE Pins</td>
+                      <td className="p-3 font-bold text-emerald-600">GPIO 18</td>
+                      <td className="p-3 text-text-secondary">Direction Control (HIGH=Tx, LOW=Rx)</td>
                     </tr>
                   </tbody>
                 </table>

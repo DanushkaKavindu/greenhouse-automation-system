@@ -755,19 +755,29 @@ app.get('/api/firmware/esp32', (req, res) => {
 
   const code = `/*
  * ============================================================================
- * 🌱 SMART CEYLON GREENHOUSE CONTROLLER - ESP32 MAIN FIRMWARE
+ * 🌱 SMART CEYLON GREENHOUSE CONTROLLER - ESP32-S3 MAIN FIRMWARE
+ * Board: ESP32-S3-DevKitC-1 (WROOM-1)
  * Cultivar: Ceylon Green Chilli (MICH 2 & KA 2) & Greenhouse Crops
  * Sensors: DHT22/SHT31 (Temp/Hum), Capacitive Soil Moisture, LDR/BH1750 (Lux),
  *          RS485 Modbus NPK Soil Sensor (Nitrogen, Phosphorus, Potassium)
  * Actuators: 4-Channel 5V Relay (Vent Fan, Drip Pump, Grow LEDs)
+ * Display: 128x64 SSD1306 I2C OLED (live on-site readout)
  * Telemetry Cloud Target: ${fullEndpoint}
+ *
+ * Pin mapping below is chosen to avoid ESP32-S3 strapping pins (0, 3, 45, 46),
+ * the native-USB pins (19, 20), the UART0 debug pins used by Serial (43, 44),
+ * and the SPI flash / octal PSRAM pins (26-37 on R8 modules) -- so it is safe
+ * on both the official ESP32-S3-DevKitC-1 board and bare WROOM-1 breakouts.
  * ============================================================================
  */
 
 #include <WiFi.h>
 #include <HTTPClient.h>
-#include <ArduinoJson.h> // Library: ArduinoJson by Benoit Blanchon (v6.x or v7.x)
-#include <DHT.h>         // Library: DHT sensor library by Adafruit
+#include <ArduinoJson.h>       // Library: ArduinoJson by Benoit Blanchon (v6.x or v7.x)
+#include <DHT.h>               // Library: DHT sensor library by Adafruit
+#include <Wire.h>
+#include <Adafruit_GFX.h>      // Library: Adafruit GFX Library
+#include <Adafruit_SSD1306.h>  // Library: Adafruit SSD1306
 
 // --------------------------- CONFIGURATION ---------------------------------
 const char* WIFI_SSID     = "YOUR_GREENHOUSE_WIFI_SSID";
@@ -776,24 +786,34 @@ const char* WIFI_PASSWORD = "YOUR_GREENHOUSE_WIFI_PASSWORD";
 // Hosted Server Telemetry Ingestion URL
 const char* SERVER_ENDPOINT = "${fullEndpoint}";
 
-// Pin Assignments
-#define DHTPIN            4     // GPIO4 -> DHT22 Data Pin
+// Pin Assignments (ESP32-S3-DevKitC-1 safe GPIOs)
+#define DHTPIN            4     // GPIO4  -> DHT22 Data Pin
 #define DHTTYPE           DHT22 // DHT 22 (AM2302)
-#define SOIL_ANALOG_PIN   34    // GPIO34 (ADC1) -> Capacitive Soil Moisture Sensor (AOUT)
-#define LDR_ANALOG_PIN    35    // GPIO35 (ADC1) -> LDR Light Sensor (AOUT)
+#define SOIL_ANALOG_PIN   1     // GPIO1  (ADC1_CH0) -> Capacitive Soil Moisture Sensor (AOUT)
+#define LDR_ANALOG_PIN    2     // GPIO2  (ADC1_CH1) -> LDR Light Sensor (AOUT)
 
 // Relay Actuator Output Pins (Active LOW for standard 5V Optocoupler Relay Modules)
-#define RELAY_FAN_PIN     18    // GPIO18 -> Ventilation Fan Relay
-#define RELAY_PUMP_PIN    19    // GPIO19 -> Drip Irrigation Water Pump Relay
-#define RELAY_LIGHT_PIN   23    // GPIO23 -> Supplementary Grow Light Relay
+#define RELAY_FAN_PIN     5     // GPIO5  -> Ventilation Fan Relay
+#define RELAY_PUMP_PIN    6     // GPIO6  -> Drip Irrigation Water Pump Relay
+#define RELAY_LIGHT_PIN   7     // GPIO7  -> Supplementary Grow Light Relay
 
-// RS485 Modbus NPK Soil Sensor (HardwareSerial 2)
+// 128x64 I2C OLED Display (on-site live readout)
+#define OLED_SDA_PIN      8     // GPIO8  -> OLED SDA
+#define OLED_SCL_PIN      9     // GPIO9  -> OLED SCL
+#define SCREEN_WIDTH      128
+#define SCREEN_HEIGHT     64
+#define OLED_RESET        -1
+#define SCREEN_ADDRESS    0x3C
+
+// RS485 Modbus NPK Soil Sensor (HardwareSerial 1)
 #define RS485_RX_PIN      16    // GPIO16 -> MAX485 RO Pin
 #define RS485_TX_PIN      17    // GPIO17 -> MAX485 DI Pin
-#define RS485_DE_RE_PIN   5     // GPIO5  -> MAX485 DE & RE Pins (Tied together)
+#define RS485_DE_RE_PIN   18    // GPIO18 -> MAX485 DE & RE Pins (Tied together)
 
 DHT dht(DHTPIN, DHTTYPE);
-HardwareSerial modbusSerial(2);
+HardwareSerial modbusSerial(1);
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+bool oledReady = false;
 
 // Modbus Inquiry Frame for 7-in-1 / 3-in-1 Soil NPK Sensor
 const byte npkInquiryFrame[] = {0x01, 0x03, 0x00, 0x1E, 0x00, 0x03, 0x65, 0xCD};
@@ -802,7 +822,7 @@ byte npkResponseFrame[11];
 void setup() {
   Serial.begin(115200);
   delay(1000);
-  Serial.println("\\n[INIT] Initializing Smart Greenhouse Controller...");
+  Serial.println("\\n[INIT] Initializing Smart Greenhouse Controller (ESP32-S3)...");
 
   // Setup Relays
   pinMode(RELAY_FAN_PIN, OUTPUT);
@@ -819,6 +839,22 @@ void setup() {
   // Init Sensors
   dht.begin();
   modbusSerial.begin(9600, SERIAL_8N1, RS485_RX_PIN, RS485_TX_PIN);
+
+  // Init OLED
+  Wire.begin(OLED_SDA_PIN, OLED_SCL_PIN);
+  if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
+    Serial.println("[WARN] OLED SSD1306 not found at 0x3C - continuing without display");
+    oledReady = false;
+  } else {
+    oledReady = true;
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor(0, 0);
+    display.println("Smart Greenhouse");
+    display.println("Booting...");
+    display.display();
+  }
 
   // Connect to WiFi
   connectWiFi();
@@ -854,7 +890,10 @@ void loop() {
   int nitrogen = 160, phosphorus = 45, potassium = 200;
   readNPKSensor(nitrogen, phosphorus, potassium);
 
-  // 5. Build JSON Payload & Send to Hosted Cloud Dashboard
+  // 5. Refresh the on-site OLED readout
+  updateOledDisplay(temperature, humidity, soilMoisturePercent, lightIntensityLux, nitrogen, phosphorus, potassium);
+
+  // 6. Build JSON Payload & Send to Hosted Cloud Dashboard
   sendTelemetryToCloud(temperature, humidity, soilMoisturePercent, lightIntensityLux, nitrogen, phosphorus, potassium);
 
   // Delay between sensor reading cycles (e.g. 5 seconds for real-time monitoring)
@@ -907,6 +946,31 @@ void readNPKSensor(int &n, int &p, int &k) {
   }
 }
 
+void updateOledDisplay(float temp, float hum, int soil, int light, int n, int p, int k) {
+  if (!oledReady) return;
+
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  display.println("SMART GREENHOUSE");
+  display.drawLine(0, 9, 128, 9, SSD1306_WHITE);
+
+  display.setCursor(0, 13);
+  display.printf("Temp: %.1fC  Hum: %.0f%%\\n", temp, hum);
+
+  display.setCursor(0, 24);
+  display.printf("Soil: %d%%   Lux: %d\\n", soil, light);
+
+  display.setCursor(0, 35);
+  display.printf("N:%d P:%d K:%d mg/kg\\n", n, p, k);
+
+  display.setCursor(0, 46);
+  display.print(WiFi.status() == WL_CONNECTED ? "WiFi: Connected" : "WiFi: Offline");
+
+  display.display();
+}
+
 void sendTelemetryToCloud(float temp, float hum, int soil, int light, int n, int p, int k) {
   if (WiFi.status() != WL_CONNECTED) return;
 
@@ -957,7 +1021,6 @@ void sendTelemetryToCloud(float temp, float hum, int soil, int light, int n, int
   http.end();
 }
 `;
-
   res.setHeader('Content-Type', 'text/plain');
   res.send(code);
 });
