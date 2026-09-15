@@ -420,24 +420,6 @@ export default function HardwareConnectModal({
                       <td className="p-3 font-bold text-emerald-600">GPIO 9</td>
                       <td className="p-3 text-text-secondary">128x64 I2C On-Site Live Readout</td>
                     </tr>
-                    <tr className="hover:bg-inner-bg/40">
-                      <td className="p-3 font-bold text-text-primary">RS485 NPK Sensor (MAX485)</td>
-                      <td className="p-3 text-text-secondary">RO (Receiver Out)</td>
-                      <td className="p-3 font-bold text-emerald-600">GPIO 16 (RX1)</td>
-                      <td className="p-3 text-text-secondary">Serial Modbus RTU Soil N-P-K readings</td>
-                    </tr>
-                    <tr className="hover:bg-inner-bg/40">
-                      <td className="p-3 font-bold text-text-primary">RS485 NPK Sensor (MAX485)</td>
-                      <td className="p-3 text-text-secondary">DI (Driver In)</td>
-                      <td className="p-3 font-bold text-emerald-600">GPIO 17 (TX1)</td>
-                      <td className="p-3 text-text-secondary">Serial Modbus RTU Command Transmitter</td>
-                    </tr>
-                    <tr className="hover:bg-inner-bg/40">
-                      <td className="p-3 font-bold text-text-primary">RS485 NPK Sensor (MAX485)</td>
-                      <td className="p-3 text-text-secondary">DE + RE Pins</td>
-                      <td className="p-3 font-bold text-emerald-600">GPIO 18</td>
-                      <td className="p-3 text-text-secondary">Direction Control (HIGH=Tx, LOW=Rx)</td>
-                    </tr>
                   </tbody>
                 </table>
               </div>
