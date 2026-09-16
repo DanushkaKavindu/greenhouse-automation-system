@@ -421,6 +421,17 @@ export default function App() {
       }
       return updated;
     });
+
+    // Push the real command to the server so a connected ESP32 actually
+    // picks it up on its next telemetry poll. The Firebase sync above is a
+    // separate, unrelated data store the hardware never reads -- without
+    // this call, manual toggles (and the Auto/Manual switch itself) only
+    // ever updated local UI state and never reached the physical relays.
+    fetch('/api/telemetry/actuators', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ [field]: value }),
+    }).catch((err) => console.error('Failed to send actuator command to hardware:', err));
   };
 
   const handleUpdateThresholds = (newThresholds: Thresholds) => {
@@ -428,6 +439,15 @@ export default function App() {
     if (user) {
       updateThresholdNode(newThresholds);
     }
+
+    // Same gap as above: thresholds were only ever saved to local/Firebase
+    // state, never to the server that the real ESP32 (and its threshold-
+    // based auto mode) actually reads.
+    fetch('/api/telemetry/thresholds', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newThresholds),
+    }).catch((err) => console.error('Failed to sync thresholds to hardware:', err));
   };
 
   const handleLogout = () => {

@@ -631,6 +631,22 @@ app.post('/api/telemetry', async (req, res) => {
     if (pumpStatus !== undefined) greenhouseHardwareState.actuators.pumpStatus = Boolean(pumpStatus);
     if (lightStatus !== undefined) greenhouseHardwareState.actuators.lightStatus = Boolean(lightStatus);
 
+    // Real threshold-based automation: when autoMode is on, evaluate the
+    // just-updated real sensor readings against the stored thresholds and
+    // decide relay state here on the server -- this is the ONLY place that
+    // actually controls hardware (the ESP32 only obeys the `commands` this
+    // endpoint returns). Updating thresholds from the dashboard used to do
+    // nothing because no code path ever applied them; this closes that gap.
+    if (greenhouseHardwareState.actuators.autoMode) {
+      const { sensorData: s, thresholds: t } = greenhouseHardwareState;
+      if (s.temperature > t.tempHigh) greenhouseHardwareState.actuators.fanStatus = true;
+      if (s.temperature < t.tempLow) greenhouseHardwareState.actuators.fanStatus = false;
+      if (s.soilMoisture < t.soilLow) greenhouseHardwareState.actuators.pumpStatus = true;
+      if (s.soilMoisture > t.soilHigh) greenhouseHardwareState.actuators.pumpStatus = false;
+      if (s.lightIntensity < t.lightLow) greenhouseHardwareState.actuators.lightStatus = true;
+      if (s.lightIntensity > t.lightHigh) greenhouseHardwareState.actuators.lightStatus = false;
+    }
+
     // Persist this real reading so Reports/Dashboard history reflects actual
     // hardware data instead of fabricated demo numbers. Never blocks or
     // fails the ESP32's request if Firestore is unavailable.
