@@ -104,7 +104,8 @@ export default function Dashboard({
       });
 
       if (!res.ok) {
-        throw new Error('AI analysis failed. Please check network connection.');
+        const errBody = await res.json().catch(() => null);
+        throw new Error(errBody?.error || 'AI analysis failed. Please check network connection.');
       }
 
       const data = await res.json();

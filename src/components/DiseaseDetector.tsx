@@ -273,7 +273,8 @@ export default function DiseaseDetector({ onUpdatePlantHeight, onUpdateHealthSco
 
             {latestFrame.analysisAvailable === false && (
               <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-xl p-3">
-                AI analysis is unavailable — the server's GEMINI_API_KEY is not configured, so this photo could not be analyzed. The image was still saved.
+                AI analysis is unavailable for this photo
+                {latestFrame.disease.symptoms[0] ? ` — ${latestFrame.disease.symptoms[0]}` : ''}. The image was still saved.
               </div>
             )}
 

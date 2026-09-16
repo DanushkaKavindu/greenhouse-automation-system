@@ -179,40 +179,13 @@ app.post('/api/disease-detect', async (req, res) => {
       return res.status(400).json({ error: 'Missing image data.' });
     }
 
-    // Fallback Mock response if API key is not present
+    // No fabricated diagnoses: without a real API key there is no basis
+    // for a disease diagnosis, so say so honestly instead of picking a
+    // random disease name off a fixed list.
     if (!apiKey) {
-      console.log('Using simulated offline diagnostic response...');
-      // Cycle through typical Chilli infections for a fun realistic demo
-      const simulations = [
-        {
-          diseaseName: 'Chilli Leaf Curl Virus',
-          confidence: 88,
-          severity: 'Warning',
-          treatment: [
-            'Rogue and burn heavily infected plants immediately.',
-            'Apply organic neem oil spray (5ml per Litre) to manage whitefly vectors.'
-          ],
-          preventive: [
-            'Establish yellow sticky traps across the greenhouse perimeter.',
-            'Maintain vector-proof fine nylon mesh nets over ventilation vents.'
-          ]
-        },
-        {
-          diseaseName: 'Anthracnose (Colletotrichum)',
-          confidence: 94,
-          severity: 'Critical',
-          treatment: [
-            'Prune and destroy infected chilli fruits showing sunken lesions.',
-            'Apply copper-based organic fungicides during early morning intervals.'
-          ],
-          preventive: [
-            'Maintain dry foliage (avoid overhead watering - prefer drip irrigation).',
-            'Ensure adequate plant spacing of at least 45cm to promote air circulation.'
-          ]
-        }
-      ];
-      const selected = simulations[Math.floor(Math.random() * simulations.length)];
-      return res.json(selected);
+      return res.status(503).json({
+        error: "AI disease detection is unavailable because the server's GEMINI_API_KEY is not configured.",
+      });
     }
 
     // Call real Gemini Vision model
@@ -271,38 +244,12 @@ app.post('/api/crop-analysis', async (req, res) => {
       return res.status(400).json({ error: 'Missing image data.' });
     }
 
-    // Fallback Mock response if API key is not present
+    // No fabricated growth data: without a real API key there is no basis
+    // for a growth-stage estimate, so say so honestly instead of picking a
+    // random stage and inventing matching numbers.
     if (!apiKey) {
-      console.log('Using simulated offline crop growth analysis...');
-      
-      // Select mock diagnostic values depending on cropType or random
-      const stages = ['Seedling', 'Vegetative', 'Flowering', 'Fruiting'];
-      const randomStage = stages[Math.floor(Math.random() * stages.length)];
-      
-      let estDays = 30;
-      let observations = "The plant shows active leaf expansion and sturdy stem growth.";
-      
-      if (randomStage === 'Seedling') {
-        estDays = 65;
-        observations = "Foliage shows healthy cotyledon development and first true leaves. Stem turgidity is strong with excellent root anchorage.";
-      } else if (randomStage === 'Vegetative') {
-        estDays = 45;
-        observations = "Dense vegetative cover with rich emerald-green foliage. Robust branching and nodes are preparing to support heavy flowering cycles.";
-      } else if (randomStage === 'Flowering') {
-        estDays = 25;
-        observations = "Foliar node development is mature. Early blossom clusters are visible with active pollination vectors. No signs of stress or flower abortion.";
-      } else if (randomStage === 'Fruiting') {
-        estDays = 12;
-        observations = "Vibrant crop showing active fruit set and pod development. High fruit count with optimal firmness and standard varietal size indicators.";
-      }
-
-      return res.json({
-        detectedCropType: cropType || "MICH 2 (Green Chilli)",
-        growthStage: randomStage,
-        confidence: 94,
-        healthScore: 92,
-        estDaysToHarvest: estDays,
-        visualObservations: `[Simulated] ${observations}`
+      return res.status(503).json({
+        error: "AI crop growth analysis is unavailable because the server's GEMINI_API_KEY is not configured.",
       });
     }
 
@@ -428,7 +375,7 @@ app.post('/api/esp32cam/upload', async (req, res) => {
             preventive: parsed.preventive || ['Monitor daily frame captures'],
           };
         }
-        if (parsed.plantHeightCm) {
+        if (typeof parsed.plantHeightCm === 'number') {
           growthData = {
             plantHeightCm: parsed.plantHeightCm,
             heightGrowthRate: parsed.heightGrowthRate || 0,
@@ -445,7 +392,14 @@ app.post('/api/esp32cam/upload', async (req, res) => {
       }
     }
 
-    const analysisAvailable = !!(diseaseData && growthData);
+    // The disease card is what's actually shown/gated in the UI, so
+    // availability tracks disease diagnosis specifically -- growth analysis
+    // (height/stem/leaves) is a separate, harder measurement that can
+    // legitimately fail (or come back as 0, e.g. a frost-killed plant) even
+    // when disease diagnosis itself succeeded. Requiring both here used to
+    // mislabel a real diagnosis as "unavailable" whenever Gemini reported
+    // plantHeightCm: 0 (a falsy-but-valid number).
+    const analysisAvailable = !!diseaseData;
 
     // No fabricated numbers: if there's no API key, or Gemini didn't return
     // a usable result, say so honestly instead of inventing a diagnosis.
@@ -500,7 +454,9 @@ app.post('/api/esp32cam/upload', async (req, res) => {
       status: 'success',
       message: analysisAvailable
         ? 'ESP32-CAM image received and analyzed successfully.'
-        : 'Image received, but AI analysis is unavailable (no GEMINI_API_KEY configured).',
+        : apiKey
+          ? 'Image received, but AI diagnosis failed for this photo -- see server logs.'
+          : 'Image received, but AI analysis is unavailable (no GEMINI_API_KEY configured).',
       frame: latestESP32Frame,
     });
 
