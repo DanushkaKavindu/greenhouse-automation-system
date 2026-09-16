@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Camera, ShieldCheck, CheckCircle2, AlertTriangle, RefreshCw, Eye, Upload, VideoOff, Clock, HelpCircle } from 'lucide-react';
+import { Camera, ShieldCheck, CheckCircle2, AlertTriangle, RefreshCw, Eye, Upload, VideoOff, Clock, HelpCircle, WifiOff } from 'lucide-react';
 import { ESP32CamFrame } from '../types';
+import { formatCaptureTime, isCameraOnline, timeSinceCapture } from '../utils/cameraStatus';
 
 interface DiseaseDetectorProps {
   onUpdatePlantHeight?: (heightCm: number) => void;
@@ -51,8 +52,20 @@ export default function DiseaseDetector({ onUpdatePlantHeight, onUpdateHealthSco
     fetchLatest();
   }, []);
 
-  // Auto-Scan just re-checks for a new real frame on an interval — it never
-  // fabricates a scan result.
+  // Always poll for real updates in the background (independent of the
+  // opt-in Auto-Scan control below) so the diagnosis log and the camera's
+  // online/offline status reflect what's actually happening -- new frames
+  // land every ~60s from the ESP32-CAM, and "went offline" needs regular
+  // re-checks too, not just a one-time fetch on mount.
+  useEffect(() => {
+    const timer = setInterval(() => {
+      fetchLatest();
+    }, 20000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Auto-Scan lets the user opt into a faster check interval on top of the
+  // background poll above — it never fabricates a scan result.
   useEffect(() => {
     if (autoScanSeconds <= 0) return;
     const timer = setInterval(() => {
@@ -241,12 +254,20 @@ export default function DiseaseDetector({ onUpdatePlantHeight, onUpdateHealthSco
               />
             )}
             <div className="absolute top-3 left-3 right-3 flex items-center justify-between gap-2 text-[10px] font-mono text-white/80">
-              <span className="bg-black/60 px-2 py-1 rounded-md">
-                {latestFrame.source === 'esp32_cam' ? 'ESP32-CAM' : latestFrame.source === 'webcam' ? 'WEBCAM' : 'UPLOADED'}
-              </span>
+              <div className="flex items-center gap-1.5">
+                <span className="bg-black/60 px-2 py-1 rounded-md">
+                  {latestFrame.source === 'esp32_cam' ? 'ESP32-CAM' : latestFrame.source === 'webcam' ? 'WEBCAM' : 'UPLOADED'}
+                </span>
+                {latestFrame.source === 'esp32_cam' && !isCameraOnline(latestFrame) && (
+                  <span className="bg-rose-600/80 px-2 py-1 rounded-md flex items-center gap-1 text-white">
+                    <WifiOff className="w-3 h-3" />
+                    Offline &middot; last seen {timeSinceCapture(latestFrame)}
+                  </span>
+                )}
+              </div>
               <span className="bg-black/60 px-2 py-1 rounded-md flex items-center gap-1">
                 <Clock className="w-3 h-3" />
-                {latestFrame.timestamp}
+                {formatCaptureTime(latestFrame)}
               </span>
             </div>
           </div>
@@ -356,7 +377,7 @@ export default function DiseaseDetector({ onUpdatePlantHeight, onUpdateHealthSco
               <tbody className="divide-y divide-divider/20 font-mono">
                 {history.map((item) => (
                   <tr key={item.id} className="hover:bg-inner-bg/50 transition-colors">
-                    <td className="py-2.5 px-3 font-semibold text-text-primary">{item.timestamp}</td>
+                    <td className="py-2.5 px-3 font-semibold text-text-primary">{formatCaptureTime(item)}</td>
                     <td className="py-2.5 px-3 uppercase text-[10px] font-bold text-navy-active">{item.source}</td>
                     <td className="py-2.5 px-3">
                       <span

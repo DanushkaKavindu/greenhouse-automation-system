@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, ChangeEvent } from 'react';
-import { Camera, RefreshCw, Upload, ShieldCheck, AlertTriangle, CheckCircle2, Cpu, Wifi, Ruler, Code, Copy, Check, Sparkles, Activity, Layers, ArrowUpRight, Play, Square, Eye, EyeOff, VideoOff } from 'lucide-react';
+import { Camera, RefreshCw, Upload, ShieldCheck, AlertTriangle, CheckCircle2, Cpu, Wifi, WifiOff, Ruler, Code, Copy, Check, Sparkles, Activity, Layers, ArrowUpRight, Play, Square, Eye, EyeOff, VideoOff } from 'lucide-react';
 import { ESP32CamFrame } from '../types';
+import { formatCaptureTime, isCameraOnline, timeSinceCapture } from '../utils/cameraStatus';
 
 interface ESP32CamFeedProps {
   onUpdatePlantHeight?: (heightCm: number) => void;
@@ -55,6 +56,18 @@ export default function ESP32CamFeed({ onUpdatePlantHeight, onUpdateHealthScore 
 
   useEffect(() => {
     fetchLatestData();
+  }, []);
+
+  // Always poll for real updates in the background (independent of the
+  // opt-in Auto-Refresh control below) so the feed, history log, and the
+  // camera's online/offline status reflect what's actually happening --
+  // new frames land every ~60s from the ESP32-CAM, and "went offline"
+  // needs regular re-checks too, not just a one-time fetch on mount.
+  useEffect(() => {
+    const timer = setInterval(() => {
+      fetchLatestData();
+    }, 20000);
+    return () => clearInterval(timer);
   }, []);
 
   // Fetch C++ Arduino Code when modal opens or tab switches
@@ -310,10 +323,17 @@ export default function ESP32CamFeed({ onUpdatePlantHeight, onUpdateHealthScore 
           </div>
           <div>
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="inline-flex items-center gap-1 bg-emerald-500/10 text-emerald-700 text-[10px] font-mono font-bold px-2 py-0.5 rounded-md border border-emerald-500/20">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                {latestFrame.source === 'esp32_cam' ? 'ESP32-CAM FRAME RECEIVED' : latestFrame.source === 'webcam' ? 'WEBCAM CAPTURE' : 'PHOTO UPLOADED'}
-              </span>
+              {latestFrame.source === 'esp32_cam' && !isCameraOnline(latestFrame) ? (
+                <span className="inline-flex items-center gap-1 bg-rose-500/10 text-rose-700 text-[10px] font-mono font-bold px-2 py-0.5 rounded-md border border-rose-500/20">
+                  <WifiOff className="w-3 h-3" />
+                  ESP32-CAM OFFLINE &middot; last seen {timeSinceCapture(latestFrame)}
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 bg-emerald-500/10 text-emerald-700 text-[10px] font-mono font-bold px-2 py-0.5 rounded-md border border-emerald-500/20">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  {latestFrame.source === 'esp32_cam' ? 'ESP32-CAM FRAME RECEIVED' : latestFrame.source === 'webcam' ? 'WEBCAM CAPTURE' : 'PHOTO UPLOADED'}
+                </span>
+              )}
               {latestFrame.ipAddress && (
                 <span className="text-[10px] font-mono text-text-secondary">IP: {latestFrame.ipAddress}</span>
               )}
@@ -718,7 +738,7 @@ export default function ESP32CamFeed({ onUpdatePlantHeight, onUpdateHealthScore 
                 <tbody className="divide-y divide-divider/20 font-mono">
                   {history.map((item) => (
                     <tr key={item.id} className="hover:bg-inner-bg/50 transition-colors">
-                      <td className="py-3 px-3 font-semibold text-text-primary">{item.timestamp}</td>
+                      <td className="py-3 px-3 font-semibold text-text-primary">{formatCaptureTime(item)}</td>
                       <td className="py-3 px-3 uppercase text-[10px] font-bold text-navy-active">{item.source}</td>
                       <td className="py-3 px-3 font-bold text-text-primary">{item.growth.plantHeightCm} cm</td>
                       <td className="py-3 px-3">{item.growth.leafCount}</td>
